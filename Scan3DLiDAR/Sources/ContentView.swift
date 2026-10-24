@@ -194,6 +194,11 @@ struct ContentView: View {
                     .font(.subheadline.weight(.semibold))
             }
             .tint(Atelier.rose)
+            if engine.retakeSlotIndex != nil {
+                Button("Annuller genfoto og fortsæt scanning") { engine.cancelRetake() }
+                    .buttonStyle(.bordered).tint(Atelier.rose)
+                    .disabled(engine.savingPhoto)
+            }
             Text(engine.savingPhoto ? "Gemmer foto og 3D-punkter …" : engine.guidanceText)
                 .font(.footnote).foregroundStyle(Atelier.muted)
                 .frame(maxWidth:.infinity,alignment:.leading)
