@@ -1,6 +1,7 @@
 name: Scan3D - source tests and iOS Simulator build
 on:
   push:
+    branches: [main]
     paths:
       - 'Scan3DLiDAR/**'
       - '.github/workflows/scan3d-lidar.yml'
