@@ -73,5 +73,8 @@ check(camera.distance == 4.5 && camera.yaw == 0 && camera.pitch == 0.2, "reset r
 let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try ply.write(to: temporary)
 check(try GeometryPreview.read(temporary) == ply, "bounded file reader returns full data")
+try Data(repeating: 0, count: GeometryPreview.maxBytes + 1).write(to: temporary)
+do { _ = try GeometryPreview.read(temporary); fatalError("oversize disk file accepted") }
+catch { assertions += 1 }
 try FileManager.default.removeItem(at: temporary)
 print("PASS \(assertions)/\(assertions) geometry preview, malformed files, resource bounds and camera")

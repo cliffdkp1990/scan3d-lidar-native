@@ -35,6 +35,12 @@ struct StoredGeometryViewer: View {
                             .accessibilityLabel("Drej modellen til venstre")
                         Button { camera.rotate(horizontal: 0.3) } label: { Image(systemName: "arrow.right") }
                             .accessibilityLabel("Drej modellen til højre")
+                        Button { camera.rotate(horizontal: 0, vertical: 0.2) } label: { Image(systemName: "arrow.up") }
+                            .accessibilityLabel("Se modellen mere fra oven")
+                        Button { camera.rotate(horizontal: 0, vertical: -0.2) } label: { Image(systemName: "arrow.down") }
+                            .accessibilityLabel("Se modellen mere nedefra")
+                    }.buttonStyle(.bordered).controlSize(.large)
+                    HStack(spacing: 10) {
                         Button { camera.zoom(by: 1.2) } label: { Image(systemName: "plus.magnifyingglass") }
                             .accessibilityLabel("Zoom ind")
                         Button { camera.zoom(by: 1 / 1.2) } label: { Image(systemName: "minus.magnifyingglass") }
