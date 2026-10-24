@@ -1,2 +1,19 @@
-# scan3d-lidar-native
-Scan3D LiDAR native iPhone app
+# Scan3D LiDAR
+
+Native LiDAR-capable iPhone prototype using SwiftUI, ARKit, RealityKit and Vision (iOS 17+; physical acceptance target: iPhone 14 Pro Max). Ordinary iPhone 13 has no LiDAR and cannot use this capture path. The source captures guided photos and camera video, samples real LiDAR depth and exports PLY/OBJ. Photo/video-based reconstruction and a true result model viewer remain planned.
+
+Automatic photos are enabled by default after locking a target. An uncovered position must pass tracking, distance, aiming and translation-stability checks; the exact frame is revalidated before capture. This is not yet a sharpness/exposure quality detector. Retakes remain manual. A save error disables automatic capture. Backgrounding, sheets and interruptions suspend capture. Resume after a paused camera requires a new target/project rather than assuming the old world coordinates are valid.
+
+Mine scanninger opens persistent projects, photo thumbnails, full photos, file integrity checks and individual photo/PLY/OBJ sharing. Assets and SHA-256 records are written before an atomic manifest commit. Retakes preserve originals. Each accepted photo persists the current point cloud; this protects geometry from a later reset. JPEG/thumbnail encoding and capture file writes run on a serial background queue. The library reopens saved data read-only; it does not resume an old AR mission. It does not yet archive/import an entire project. Old Scan3DPhotos/Scan3DLiDARExports folders remain intact and accessible through Files.
+
+Video starts automatically with a new locked target unless disabled in capture options; manual Start/Stop remains available. The recorder consumes the existing AR camera stream, never starts a second camera session and records no microphone/audio or UI overlays. It encodes H.264 in MOV, at most 1280 pixels on the long edge and 15 accepted frames/sec, preserving source aspect ratio without upscaling. Orientation is fixed at recording start. Backpressure drops frames with only one source buffer in flight. Stop, camera pause, sheets/inactive app and AR interruption request finalization; serious/critical thermal state, less than 200 MiB free storage and 5 minutes also stop the clip. These hardware/resource callbacks still require physical testing.
+
+The project manifest journals a pending clip before recording. Only a finalized, readable video with a decoded frame is published to the library; hashing uses 1 MiB chunks. Completed clips can be played and shared. Interrupted/pending clips stay visible and can be checked for recovery. Recovery can register an already playable file after an interrupted manifest write; it cannot repair a truncated or unfinalized movie, and originals are never deleted. Old v1 manifests without video fields still load. A finite iOS background task attempts finalization; iOS may still terminate the app, leaving a pending clip. Video is not yet used to create a 3D model.
+
+CI additionally writes synthetic frames through the actual AVAssetWriter pipeline and decodes every resulting frame. It tests timestamps, all four track rotations, no audio, resolution bounds, stop idempotence, low-space finalization, an interruption stop reason, empty/corrupt files, publication failure and recovery. These are real codec/filesystem tests on macOS, not recordings of a physical iPhone or an interactive Simulator UI test.
+
+The source lives directly in `Scan3DLiDAR/`. The workflow compiles that source; it does not download an external source ZIP. See GitHub Actions and the pull request checks for the current build result. CI runs for pull requests and pushes to main, avoiding duplicate branch/PR builds. Physical iPhone installation, signing and LiDAR acceptance tests remain outstanding.
+
+For Mac: install Xcode and XcodeGen, run `xcodegen generate` inside `Scan3DLiDAR`, then open the generated Xcode project. Sign with your own Apple team to run on a physical supported device. An unsigned Simulator build does not install on an iPhone.
+
+The maintained app plan is `docs/APPPLAN_DA.md`, included automatically by the registered local GitHub Flow profile. No per-update ZIP download or manual GitHub upload is needed.
