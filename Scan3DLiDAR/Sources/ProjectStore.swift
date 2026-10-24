@@ -23,6 +23,31 @@ struct StoredExport: Codable, Identifiable {
     let file: StoredScanFile
 }
 
+struct PendingVideo: Codable, Identifiable {
+    let id: UUID
+    let name: String
+    let createdAt: Date
+    var failure: String?
+}
+
+struct VideoDetails: Codable {
+    let width: Int
+    let height: Int
+    let duration: Double
+    let frames: Int?
+    let firstARTimestamp: Double?
+    let orientation: String
+    let stopReason: String
+}
+
+struct StoredVideo: Codable, Identifiable {
+    let id: UUID
+    let createdAt: Date
+    let file: StoredScanFile
+    let metadata: StoredScanFile
+    let details: VideoDetails
+}
+
 struct ScanProject: Codable, Identifiable {
     let version: Int
     let id: UUID
@@ -34,13 +59,19 @@ struct ScanProject: Codable, Identifiable {
     var captures: [StoredCapture]
     var currentPhotos: [String: UUID]
     var exports: [StoredExport]
+    // Optional fields keep original v1 manifests readable without migration.
+    var videos: [StoredVideo]? = nil
+    var pendingVideos: [PendingVideo]? = nil
+
+    var savedVideos: [StoredVideo] { videos ?? [] }
+    var unfinishedVideos: [PendingVideo] { pendingVideos ?? [] }
 
     var currentCaptures: [StoredCapture] {
         captures.filter { currentPhotos[String($0.slot)] == $0.id }.sorted { $0.slot < $1.slot }
     }
     var allFiles: [StoredScanFile] {
         captures.flatMap { [$0.photo, $0.metadata, $0.pointCloud] + [$0.thumbnail].compactMap { $0 } }
-            + exports.map(\.file)
+            + exports.map(\.file) + savedVideos.flatMap { [$0.file, $0.metadata] }
     }
 }
 
@@ -99,7 +130,13 @@ final class ProjectStore {
               project.captures.allSatisfy({ (0..<36).contains($0.slot) }),
               project.currentPhotos.allSatisfy({ slot, capture in
                   project.captures.contains { String($0.slot) == slot && $0.id == capture }
-              }), project.allFiles.allSatisfy({ Self.validName($0.name) && $0.bytes > 0
+              }), project.unfinishedVideos.allSatisfy({ $0.name == "video-\($0.id.uuidString).mov" }),
+              Set(project.unfinishedVideos.map(\.id)).count == project.unfinishedVideos.count,
+              Set(project.savedVideos.map(\.id)).count == project.savedVideos.count,
+              Set(project.unfinishedVideos.map(\.id)).isDisjoint(with: project.savedVideos.map(\.id)),
+              project.savedVideos.allSatisfy({ $0.details.duration.isFinite && $0.details.duration > 0
+                  && $0.details.width > 0 && $0.details.height > 0 }),
+              project.allFiles.allSatisfy({ Self.validName($0.name) && $0.bytes > 0
                   && $0.sha256.count == 64 && $0.sha256.allSatisfy { "0123456789abcdef".contains($0) } }) else {
             throw ProjectStoreError.invalidManifest
         }
@@ -152,19 +189,23 @@ final class ProjectStore {
 
     func fileURL(_ file: StoredScanFile, projectID: UUID) throws -> URL {
         guard Self.validName(file.name) else { throw ProjectStoreError.invalidManifest }
-        let url = directory(projectID).appendingPathComponent(file.name)
+        return try regularFileURL(name: file.name, projectID: projectID)
+    }
+
+    private func regularFileURL(name: String, projectID: UUID) throws -> URL {
+        let url = directory(projectID).appendingPathComponent(name)
         // The app's Files directory can be edited outside the app. Never follow links.
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey])
         guard values.isSymbolicLink != true, values.isRegularFile == true else {
-            throw ProjectStoreError.damagedFile(file.name)
+            throw ProjectStoreError.damagedFile(name)
         }
         return url
     }
 
     func verifiedURL(_ file: StoredScanFile, projectID: UUID) throws -> URL {
         let url = try fileURL(file, projectID: projectID)
-        let data = try Data(contentsOf: url)
-        guard data.count == file.bytes, Self.hash(data) == file.sha256 else {
+        let actual = try Self.describeFile(at: url)
+        guard actual.bytes == file.bytes, actual.sha256 == file.sha256 else {
             throw ProjectStoreError.damagedFile(file.name)
         }
         return url
@@ -172,6 +213,75 @@ final class ProjectStore {
 
     func verify(_ project: ScanProject) throws {
         for file in project.allFiles { _ = try verifiedURL(file, projectID: project.id) }
+    }
+
+    func beginVideo(projectID: UUID) throws -> (PendingVideo, URL) {
+        lock.lock(); defer { lock.unlock() }
+        var project = try load(projectID)
+        guard project.unfinishedVideos.count < 100 else { throw ProjectStoreError.invalidManifest }
+        let id = UUID()
+        let pending = PendingVideo(id: id, name: "video-\(id.uuidString).mov", createdAt: Date())
+        project.pendingVideos = project.unfinishedVideos + [pending]
+        project.updatedAt = Date()
+        try commit(project) // Journal before the encoder creates its output.
+        return (pending, directory(projectID).appendingPathComponent(pending.name))
+    }
+
+    func pendingVideoURL(projectID: UUID, videoID: UUID) throws -> URL {
+        lock.lock(); defer { lock.unlock() }
+        let project = try load(projectID)
+        guard let pending = project.unfinishedVideos.first(where: { $0.id == videoID }) else {
+            throw ProjectStoreError.invalidManifest
+        }
+        return try regularFileURL(name: pending.name, projectID: projectID)
+    }
+
+    func noteVideoFailure(projectID: UUID, videoID: UUID, message: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        var project = try load(projectID)
+        var pending = project.unfinishedVideos
+        guard let index = pending.firstIndex(where: { $0.id == videoID }) else { return }
+        pending[index].failure = message
+        project.pendingVideos = pending
+        project.updatedAt = Date()
+        try commit(project)
+    }
+
+    /// The caller validates the movie with AVFoundation before publication. If
+    /// manifest commit fails, the movie and journal remain available for recovery.
+    func finishVideo(projectID: UUID, videoID: UUID, details: VideoDetails) throws -> StoredVideo {
+        lock.lock(); defer { lock.unlock() }
+        var project = try load(projectID)
+        if let existing = project.savedVideos.first(where: { $0.id == videoID }) { return existing }
+        guard details.duration.isFinite, details.duration > 0, details.width > 0, details.height > 0,
+              let pending = project.unfinishedVideos.first(where: { $0.id == videoID }) else {
+            throw ProjectStoreError.invalidManifest
+        }
+        let movie = try Self.describeFile(at: pendingVideoURL(projectID: projectID, videoID: videoID))
+        guard movie.bytes > 0 else { throw ProjectStoreError.emptyFile }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let meta = try write(encoder.encode(details), name: "video-\(videoID.uuidString).json", projectID: projectID)
+        let video = StoredVideo(id: videoID, createdAt: pending.createdAt, file: movie, metadata: meta, details: details)
+        project.videos = project.savedVideos + [video]
+        project.pendingVideos = project.unfinishedVideos.filter { $0.id != videoID }
+        project.updatedAt = Date()
+        try commit(project)
+        return video
+    }
+
+    /// Bounded memory for long videos, also used to verify existing photos.
+    private static func describeFile(at url: URL) throws -> StoredScanFile {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var bytes = 0
+        while let block = try handle.read(upToCount: 1_048_576), !block.isEmpty {
+            hasher.update(data: block)
+            bytes += block.count
+        }
+        return StoredScanFile(name: url.lastPathComponent, bytes: bytes,
+            sha256: hasher.finalize().map { String(format: "%02x", $0) }.joined())
     }
 
     private func directory(_ id: UUID) -> URL { root.appendingPathComponent(id.uuidString, isDirectory: true) }

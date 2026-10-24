@@ -6,7 +6,9 @@
 
 Kilden ligger nu direkte i scannerens repository via draft PR #1. Den næste ændring tilføjer automatisk foto efter godkendt vinkel samt `ProjectStore` og **Mine scanninger** med virkelige fotominiaturer, genåbning, SHA-256-kontrol og individuel fildeling. Genfoto bevarer tidligere optagelser. Punktsky gemmes sammen med hvert registreret foto. Manifestet opdateres først, når filerne er gemt og læst tilbage. Skrivefejl stopper automatisk foto; gemte projekter åbnes uden at genbruge AR-koordinater. Genoptagelse efter kamera-pause kræver nyt mål/projekt.
 
-Det er en reviewimplementering, der skal gennem CI og fysisk test. Den nye automatiske fotokontrol måler stadig ikke skarphed/eksponering. Video, foto-til-model, egentlig 3D-resultatviewer, samlet projektbackup/import og signeret installation er endnu ikke implementeret. Den oprindelige materialepakke er bevaret som historisk grundlag; den aktuelle kilde og denne faste appplan opdateres gennem GitHub-værktøjet uden ny ZIP.
+Den efterfølgende reviewændring tilføjer kameravideo fra den eksisterende ARKit-stream, automatisk start med et nyt låst objekt, Start/Stop og afspilning/deling i biblioteket. Videoen har ingen lyd, bruger H.264/MOV med højst 1280 pixels på langsiden og 15 billeder/sekund og fastholder retningen fra start. Optagelsen afsluttes ved pause/afbrydelse, varme, lav lagerplads eller fem minutter. Pending-journal og streaming-SHA-256 bevarer filspor ved afbrydelse. Gendannelse registrerer kun filer, der allerede kan læses og afkodes; den reparerer ikke en ødelagt MOV-fil. Ældre v1-projekter kan stadig åbnes.
+
+Det er reviewkode, der skal gennem CI og fysisk test. Den automatiske fotokontrol måler stadig ikke skarphed/eksponering. Foto-/video-til-model, egentlig 3D-resultatviewer, samlet projektbackup/import og signeret installation er endnu ikke implementeret. Videotests bruger syntetiske billeder med rigtig kodning og afkodning på macOS; de beviser ikke fysisk iPhone-optagelse. Den oprindelige materialepakke er bevaret som historisk grundlag; den aktuelle kilde og denne faste appplan opdateres gennem GitHub-værktøjet uden ny ZIP.
 
 ## Den oplevelse, der skal bygges
 
@@ -22,7 +24,7 @@ Første skærm viser en stor **Ny scanning**-knap og visuelle kort med dine tidl
 | Fotoguide | 36 positioner, frisk frame-kontrol, stabilitetskrav, genfoto og ny automatisk udløser i review | Fysisk test af automatisk optagelse, skarphed/eksponering og enklere samlet brugerflow |
 | Gemte fotos | Nyt projektmanifest med hashes, bibliotek, genåbning og bevarede genfotos i review | Fysisk afprøvning, samlet projektbackup/import og gendannelse af AR-mission |
 | 3D-geometri | Målt LiDAR-punktsky som PLY og ARKit-scenemesh som OBJ | Objektisolering, egentlig resultatvisning, kvalitetskontrol og mere detaljeret model |
-| Video | Ingen videooptagelse fundet i den hentede native kilde | Optagepipeline, afspilning, lagring og video som rekonstruktionsinput |
+| Video | Ny ARKit-baseret optagepipeline, lagring, afspilning og fildeling i review | Fysisk kamera-/ressourcetest og video som rekonstruktionsinput |
 | Rekonstruktion fra fotos | Ikke implementeret i den genfundne app | Object Capture-/fotogrammetriforløb |
 | Bygning | Seneste GitHub-test og usignerede Simulator-build bestået | Signeret fysisk enhedsbuild/TestFlight |
 

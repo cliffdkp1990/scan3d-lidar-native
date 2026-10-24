@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 import UIKit
 
@@ -18,7 +19,7 @@ struct ScanLibraryView: View {
                     }
                     ForEach(engine.projects) { project in
                         NavigationLink {
-                            ScanProjectView(project: project, store: engine.projectStore)
+                            ScanProjectView(project: project, engine: engine)
                         } label: {
                             HStack(spacing: 16) {
                                 if let cover = project.currentCaptures.first {
@@ -33,7 +34,7 @@ struct ScanLibraryView: View {
                                 }
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text(project.title).font(.headline)
-                                    Text("\(project.currentCaptures.count)/36 fotos · \(project.exports.count) eksporter")
+                                    Text("\(project.currentCaptures.count)/36 fotos · \(project.savedVideos.count) videoer")
                                         .font(.subheadline).foregroundStyle(.secondary)
                                     Text(project.updatedAt, format: .dateTime.day().month().hour().minute())
                                         .font(.caption).foregroundStyle(.secondary)
@@ -54,10 +55,13 @@ struct ScanLibraryView: View {
 }
 
 private struct ScanProjectView: View {
-    let project: ScanProject
-    let store: ProjectStore
+    @State var project: ScanProject
+    @ObservedObject var engine: ScanEngine
+    private var store: ProjectStore { engine.projectStore }
     @State private var integrity = ""
     @State private var checking = false
+    @State private var recovering: UUID?
+    @State private var recoveryMessage = ""
 
     var body: some View {
         ScrollView {
@@ -66,6 +70,26 @@ private struct ScanProjectView: View {
                     .font(.headline)
                 Text("Gemte optagelser. En ny scanning starter med et nyt koordinatsystem; dette projekt føres ikke automatisk videre efter genstart.")
                     .font(.subheadline).foregroundStyle(.secondary)
+                if !project.savedVideos.isEmpty { Text("Video").font(.title2.bold()) }
+                ForEach(project.savedVideos) { video in
+                    NavigationLink {
+                        StoredVideoPlayer(video: video, projectID: project.id, store: store)
+                    } label: {
+                        Label("Video · \(Int(video.details.duration.rounded())) sekunder", systemImage: "play.rectangle.fill")
+                            .font(.headline).frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+                    }.buttonStyle(.bordered)
+                }
+                ForEach(project.unfinishedVideos) { pending in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Afbrudt eller igangværende video", systemImage: "exclamationmark.triangle")
+                            .font(.headline)
+                        Text(pending.failure ?? "Filen er endnu ikke godkendt. En optagelse må først gendannes, når den er stoppet.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button(recovering == pending.id ? "Kontrollerer …" : "Kontrollér og gendan video") { recover(pending) }
+                            .disabled(recovering != nil || (engine.videoBusy && engine.activeProject?.id == project.id))
+                    }.padding().background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+                }
+                if !recoveryMessage.isEmpty { Text(recoveryMessage).font(.footnote) }
                 if let latest = project.captures.last {
                     VerifiedScanShare(file: latest.pointCloud, projectID: project.id, store: store, title: "Senest gemte 3D-punktsky (PLY)")
                 }
@@ -111,6 +135,73 @@ private struct ScanProjectView: View {
                 }
             }.padding()
         }.navigationTitle(project.title).navigationBarTitleDisplayMode(.inline)
+            .onReceive(engine.$projects) { updated in
+                if let current = updated.first(where: { $0.id == project.id }) { project = current }
+            }
+    }
+
+    private func recover(_ pending: PendingVideo) {
+        recovering = pending.id
+        let recoveryStore = store
+        let projectID = project.id
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<ScanProject, Error> in
+                do {
+                    let url = try recoveryStore.pendingVideoURL(projectID: projectID, videoID: pending.id)
+                    let checked = try await VideoFileInspector.inspect(url)
+                    _ = try recoveryStore.finishVideo(projectID: projectID, videoID: pending.id,
+                        details: VideoDetails(width: checked.width, height: checked.height, duration: checked.duration,
+                            frames: nil, firstARTimestamp: nil, orientation: "movieTrack", stopReason: "recovered"))
+                    return .success(try recoveryStore.load(projectID))
+                } catch { return .failure(error) }
+            }.value
+            switch result {
+            case .success(let updated): project = updated; recoveryMessage = "Videoen er kontrolleret og gendannet."; engine.refreshLibrary()
+            case .failure(let error): recoveryMessage = "Kan ikke gendannes: \(error.localizedDescription). Originalen er bevaret."
+            }
+            recovering = nil
+        }
+    }
+}
+
+private struct StoredVideoPlayer: View {
+    let video: StoredVideo
+    let projectID: UUID
+    let store: ProjectStore
+    @State private var player: AVPlayer?
+    @State private var failure: String?
+    @Environment(\.scenePhase) private var scenePhase
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                if let player = player { VideoPlayer(player: player).frame(height: 340) }
+                else if let failure = failure { Label(failure, systemImage: "exclamationmark.triangle").padding() }
+                else { ProgressView("Kontrollerer video …").frame(height: 200) }
+                Text("Kameravideo uden lyd. Videoen indeholder ikke en færdig 3D-model.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                VerifiedScanShare(file: video.file, projectID: projectID, store: store, title: "Del video")
+            }.padding()
+        }
+        .navigationTitle("Video")
+        .onDisappear { player?.pause() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { player?.pause() } }
+        .task(id: video.id) {
+            let videoStore = store
+            let videoFile = video.file
+            let videoProjectID = projectID
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                do {
+                    let url = try videoStore.verifiedURL(videoFile, projectID: videoProjectID)
+                    _ = try await VideoFileInspector.inspect(url)
+                    return .success(url)
+                } catch { return .failure(error) }
+            }.value
+            guard !Task.isCancelled else { return }
+            switch result {
+            case .success(let url): player = AVPlayer(url: url)
+            case .failure(let error): failure = error.localizedDescription
+            }
+        }
     }
 }
 

@@ -106,6 +106,10 @@ struct ContentView: View {
         .onChange(of:retakeSheet) { _,_ in updateCaptureSuspension() }
         .onChange(of:librarySheet) { _,_ in updateCaptureSuspension() }
         .onChange(of:newTargetConfirmation) { _,_ in updateCaptureSuspension() }
+        .onChange(of:engine.automaticVideo) { _,enabled in
+            if enabled && engine.missionTargetLocked { engine.startVideo() }
+            else if !enabled { engine.stopVideo() }
+        }
         .confirmationDialog("Starte en ny scanning?",isPresented:$newTargetConfirmation,titleVisibility:.visible) {
             Button("Lås nyt mål og nulstil mission",role:.destructive) { engine.lockCenteredTarget() }
         } message: {
@@ -194,6 +198,20 @@ struct ContentView: View {
                     .font(.subheadline.weight(.semibold))
             }
             .tint(Atelier.rose)
+            Toggle("Start video automatisk", isOn: $engine.automaticVideo)
+                .font(.subheadline.weight(.semibold)).tint(Atelier.rose)
+            Button {
+                if engine.videoState == .recording { engine.stopVideo() }
+                else { engine.startVideo() }
+            } label: {
+                Label(engine.videoState == .recording ? "Stop og gem video" : (engine.videoBusy ? "Gemmer video …" : "Start video"),
+                    systemImage: engine.videoState == .recording ? "stop.circle.fill" : "video.fill")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered).tint(engine.videoState == .recording ? .red : Atelier.rose)
+            .disabled(engine.videoState == .preparing || engine.videoState == .finishing || !engine.running || !engine.missionTargetLocked)
+            Text(engine.videoMessage).font(.footnote).foregroundStyle(Atelier.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if engine.retakeSlotIndex != nil {
                 Button("Annuller genfoto og fortsæt scanning") { engine.cancelRetake() }
                     .buttonStyle(.bordered).tint(Atelier.rose)
@@ -208,7 +226,7 @@ struct ContentView: View {
                         .font(.system(size:14,weight:.bold)).frame(maxWidth:.infinity,minHeight:49)
                 }
                 .buttonStyle(.bordered).tint(Atelier.rose)
-                .disabled(!engine.running || engine.savingPhoto)
+                .disabled(!engine.running || engine.savingPhoto || engine.videoBusy)
                 Button { engine.captureCurrentFrame() } label: {
                     Label(engine.savingPhoto ? "Gemmer …" : (engine.retakeSlotIndex == nil ? "Tag foto" : "Tag om"),systemImage:"camera.fill")
                         .font(.system(size:15,weight:.heavy)).frame(maxWidth:.infinity,minHeight:49)
@@ -225,7 +243,7 @@ struct ContentView: View {
                         .font(.system(size:12,weight:.semibold))
                 }
                 .tint(Atelier.violet)
-                .disabled(engine.savingPhoto)
+                .disabled(engine.savingPhoto || engine.videoState == .preparing || engine.videoState == .finishing)
                 Button { engine.showWireframe.toggle() } label: {
                     Label("Vis 3D-mesh",systemImage:"cube.transparent")
                         .font(.system(size:12,weight:.semibold))

@@ -3,8 +3,11 @@ import Combine
 import CoreImage
 import Foundation
 import ImageIO
+import UIKit
 import simd
 import Vision
+
+enum ScanVideoState { case idle, preparing, recording, finishing }
 
 /// Native Scan3D prototype for LiDAR-capable iPhones. All image processing is on-device.
 /// World position is in ARKit session coordinates (meters), not a survey-grade global position.
@@ -35,6 +38,14 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var projects: [ScanProject] = []
     @Published private(set) var libraryMessage = ""
     @Published private(set) var captureSuspended = false
+    @Published var automaticVideo = true
+    @Published private(set) var videoState: ScanVideoState = .idle
+    @Published private(set) var videoMessage = "Video starter sammen med et nyt låst objekt. Ingen lyd optages."
+    private var videoRecorder: VideoRecorder?
+    private var pendingVideoStop: String?
+    private var pendingAutomaticVideoStart = false
+    private var videoBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    var videoBusy: Bool { videoState != .idle }
     let projectStore = ProjectStore()
     private let fileQueue = DispatchQueue(label: "dk.scan3d.project-files", qos: .userInitiated)
     private var automaticCapture = AutomaticCapture()
@@ -69,7 +80,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func start(using session: ARSession) {
-        guard !savingPhoto else { return }
+        guard !savingPhoto, !videoBusy else { return }
         guard Self.supportsLiDAR else {
             trackingText = "LiDAR-dybde er ikke understøttet på denne enhed."
             return
@@ -95,6 +106,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func stop() {
+        stopVideo(reason: "cameraPaused")
         session?.pause()
         self.running = false
         self.trackingText = "Sat på pause"
@@ -106,9 +118,14 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func suspendCapture(_ suspended: Bool) {
+        if suspended { stopVideo(reason: "captureSuspended") }
         captureSuspended = suspended
         missionReady = false
         stableSince = nil
+        if !suspended, pendingAutomaticVideoStart {
+            pendingAutomaticVideoStart = false
+            if automaticVideo { startVideo() }
+        }
     }
 
     func refreshLibrary() {
@@ -128,7 +145,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func resetMission() {
-        guard !savingPhoto else { return }
+        guard !savingPhoto, !videoBusy else { return }
         activeProject = nil
         automaticCapture.reset()
         savedCount = 0
@@ -160,7 +177,10 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     /// Approximate 3D target by projecting a center LiDAR depth reading along the camera forward ray.
     /// This is NOT a semantic segmentation, a calibrated object center, or an ARAnchor.
     func lockCenteredTarget() {
-        guard !savingPhoto else { return }
+        guard !savingPhoto, !videoBusy else {
+            guidanceText = "Afslut og gem optagelsen, før du vælger et nyt mål."
+            return
+        }
         guard running, let frame = session?.currentFrame else {
             guidanceText = "Start ARKit-kameraet først."
             return
@@ -209,6 +229,111 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         missionNext = "Find første vinkel og hold telefonen stille."
         missionNavigation = "Ret kameraet mod genstanden, og gå roligt omkring den."
         refreshLibrary()
+        if automaticVideo {
+            if captureSuspended { pendingAutomaticVideoStart = true }
+            else { startVideo() }
+        }
+    }
+
+    func startVideo() {
+        guard !videoBusy, running, !captureSuspended, let projectID = activeProject?.id else {
+            videoMessage = "Lås først et objekt med kameraet aktivt."
+            return
+        }
+        let orientation: ScanVideoOrientation
+        let interface = (UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive } as? UIWindowScene)?.interfaceOrientation
+        switch interface {
+        case .landscapeLeft: orientation = .landscapeLeft
+        case .landscapeRight: orientation = .landscapeRight
+        case .portraitUpsideDown: orientation = .portraitUpsideDown
+        default: orientation = .portrait
+        }
+        videoState = .preparing
+        pendingVideoStop = nil
+        videoMessage = "Klargør video …"
+        fileQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let (pending, url) = try self.projectStore.beginVideo(projectID: projectID)
+                DispatchQueue.main.async {
+                    let recorder = VideoRecorder(url: url, orientation: orientation, onFinishing: { [weak self] in
+                        DispatchQueue.main.async {
+                            self?.videoState = .finishing
+                            self?.videoMessage = "Afslutter og kontrollerer video …"
+                        }
+                    }) { [weak self] result in
+                        self?.completeVideo(result, projectID: projectID, videoID: pending.id, url: url)
+                    }
+                    self.videoRecorder = recorder
+                    self.videoState = .recording
+                    self.videoMessage = "Optager uden lyd · højst 5 min · retning fastlagt ved start."
+                    if let reason = self.pendingVideoStop { self.stopVideo(reason: reason) }
+                    else if !self.running || self.captureSuspended { self.stopVideo(reason: "captureSuspended") }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.videoState = .idle
+                    self.videoMessage = "Video kunne ikke starte: \(error.localizedDescription)"
+                    self.endVideoBackgroundTask()
+                }
+            }
+        }
+    }
+
+    func stopVideo(reason: String = "user") {
+        guard videoBusy else { return }
+        if videoBackgroundTask == .invalid {
+            videoBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Scan3D video finish") { [weak self] in
+                self?.videoMessage = "iOS afbrød afslutningen. Kontroller den bevarede video i Mine scanninger."
+                self?.endVideoBackgroundTask()
+            }
+        }
+        if videoState == .preparing { pendingVideoStop = pendingVideoStop ?? reason; return }
+        videoState = .finishing
+        videoMessage = "Afslutter og kontrollerer video …"
+        videoRecorder?.finish(reason: reason)
+    }
+
+    private func completeVideo(_ result: Result<VideoDetails, Error>, projectID: UUID, videoID: UUID, url: URL) {
+        // This callback may run on the encoder queue. Inspection and hashing stay
+        // off the main thread, including when iOS is ending a background task.
+        Task.detached(priority: .userInitiated) { [self] in
+            let message: String
+            do {
+                let encoded = try result.get()
+                let checked = try await VideoFileInspector.inspect(url)
+                let details = VideoDetails(width: checked.width, height: checked.height, duration: checked.duration,
+                    frames: encoded.frames, firstARTimestamp: encoded.firstARTimestamp,
+                    orientation: encoded.orientation, stopReason: encoded.stopReason)
+                _ = try projectStore.finishVideo(projectID: projectID, videoID: videoID, details: details)
+                let reason: String
+                switch encoded.stopReason {
+                case "lowStorage": reason = " Stoppet ved lav lagerplads."
+                case "thermal": reason = " Stoppet, fordi telefonen blev varm."
+                case "durationLimit": reason = " Grænsen på 5 minutter er nået."
+                default: reason = ""
+                }
+                message = "Video gemt i Mine scanninger.\(reason)"
+            } catch {
+                try? projectStore.noteVideoFailure(projectID: projectID, videoID: videoID, message: error.localizedDescription)
+                message = "Video ikke godkendt: \(error.localizedDescription) Se den bevarede optagelse i Mine scanninger."
+            }
+            await MainActor.run {
+                self.videoState = .idle
+                self.videoRecorder = nil
+                self.pendingVideoStop = nil
+                self.videoMessage = message
+                self.endVideoBackgroundTask()
+                self.refreshLibrary()
+            }
+        }
+    }
+
+    private func endVideoBackgroundTask() {
+        if videoBackgroundTask != .invalid {
+            UIApplication.shared.endBackgroundTask(videoBackgroundTask)
+            videoBackgroundTask = .invalid
+        }
     }
 
     /// A previously covered angle may be replaced once the iPhone is physically back at that slot.
@@ -233,6 +358,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
+        stopVideo(reason: "sessionError")
         running = false
         missionReady = false
         stableSince = nil
@@ -241,6 +367,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
+        stopVideo(reason: "sessionInterrupted")
         // Apple: do not pause inside this callback, or interruption-ended is lost.
         running = false
         missionReady = false
@@ -267,6 +394,11 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         guard Self.supportsLiDAR, running else { return }
+        if videoState == .recording {
+            let thermal = ProcessInfo.processInfo.thermalState
+            if thermal == .serious || thermal == .critical { stopVideo(reason: "thermal") }
+            else if !captureSuspended { videoRecorder?.append(frame.capturedImage, timestamp: frame.timestamp) }
+        }
         let t = frame.camera.transform.columns.3
         let position = SIMD3<Float>(t.x, t.y, t.z)
         let depth = frame.smoothedSceneDepth.flatMap { Self.middleDepth($0.depthMap) }

@@ -37,6 +37,8 @@ jobs:
           "$RUNNER_TEMP/automatic-tests"
           swiftc Sources/ProjectStore.swift Tests/projects/main.swift -o "$RUNNER_TEMP/project-tests"
           "$RUNNER_TEMP/project-tests"
+          swiftc Sources/ProjectStore.swift Sources/VideoTimeline.swift Sources/VideoRecorder.swift Tests/video/main.swift -o "$RUNNER_TEMP/video-tests"
+          "$RUNNER_TEMP/video-tests"
       - name: Prepare Xcode project
         shell: bash
         run: |
