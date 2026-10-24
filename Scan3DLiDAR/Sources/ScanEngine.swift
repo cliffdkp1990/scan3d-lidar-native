@@ -311,6 +311,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                 case "lowStorage": reason = " Stoppet ved lav lagerplads."
                 case "thermal": reason = " Stoppet, fordi telefonen blev varm."
                 case "durationLimit": reason = " Grænsen på 5 minutter er nået."
+                case "coverageComplete": reason = " Alle 36 fotovinkler er registreret."
                 default: reason = ""
                 }
                 message = "Video gemt i Mine scanninger.\(reason)"
@@ -685,6 +686,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             } else {
                 missionNext = "36/36 dækket. Gennemgå fotos, før du fortsætter."
                 missionNavigation = "Alle 36 positioner dækket. Kontrollér skarphed og overlap."
+                stopVideo(reason: "coverageComplete")
             }
             if !replacement { savedCount += 1 }
             // Collect only depth points corresponding to a successfully saved photo.

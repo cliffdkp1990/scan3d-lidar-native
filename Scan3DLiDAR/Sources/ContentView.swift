@@ -193,13 +193,6 @@ struct ContentView: View {
 
     private var controls: some View {
         VStack(spacing:12) {
-            Toggle(isOn: $engine.automaticPhotos) {
-                Label("Automatisk foto", systemImage:"camera.badge.ellipsis")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .tint(Atelier.rose)
-            Toggle("Start video automatisk", isOn: $engine.automaticVideo)
-                .font(.subheadline.weight(.semibold)).tint(Atelier.rose)
             Button {
                 if engine.videoState == .recording { engine.stopVideo() }
                 else { engine.startVideo() }
@@ -272,6 +265,15 @@ struct ContentView: View {
             }
             .font(.system(size:11,weight:.medium))
             .foregroundStyle(Atelier.muted)
+            DisclosureGroup("Optagelsesvalg") {
+                VStack(spacing: 12) {
+                    Toggle("Automatisk foto", isOn: $engine.automaticPhotos)
+                    Toggle("Start video automatisk", isOn: $engine.automaticVideo)
+                    Text("Video gemmes uden lyd. Retningen fastholdes fra optagelsens start.")
+                        .font(.footnote).foregroundStyle(Atelier.muted)
+                }.padding(.top, 10)
+            }
+            .font(.subheadline.weight(.semibold)).tint(Atelier.rose)
         }
         .padding(.horizontal,20).padding(.top,14).padding(.bottom,12)
     }

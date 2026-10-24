@@ -19,7 +19,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dk.scan3dstudio.lidar
         GENERATE_INFOPLIST_FILE: 'YES'
-        INFOPLIST_KEY_NSCameraUsageDescription: 'Scan3D bruger kamera og LiDAR til at registrere lokal dybde og 3D-geometri.'
+        INFOPLIST_KEY_NSCameraUsageDescription: 'Scan3D bruger kamera og LiDAR til fotos, video uden lyd og lokal 3D-geometri.'
         INFOPLIST_KEY_UIFileSharingEnabled: 'YES'
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: 'YES'
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: 'YES'
