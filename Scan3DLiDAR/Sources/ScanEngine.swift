@@ -2,6 +2,7 @@ import ARKit
 import Combine
 import CoreImage
 import Foundation
+import ImageIO
 import simd
 import Vision
 
@@ -28,6 +29,16 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     @Published var lastPhotoURL: URL?
     @Published var detectedRect: CGRect? // normalized Vision coordinates, diagnostic only
     @Published var running = false
+    @Published var automaticPhotos = true
+    @Published private(set) var savingPhoto = false
+    @Published private(set) var activeProject: ScanProject?
+    @Published private(set) var projects: [ScanProject] = []
+    @Published private(set) var libraryMessage = ""
+    @Published private(set) var captureSuspended = false
+    let projectStore = ProjectStore()
+    private let fileQueue = DispatchQueue(label: "dk.scan3d.project-files", qos: .userInitiated)
+    private var automaticCapture = AutomaticCapture()
+    private var needsNewCoordinateSpace = false
     @Published var missionTargetLocked = false
     @Published var missionReady = false
     @Published var missionCurrentSlot = "Lås genstanden for at begynde"
@@ -37,7 +48,6 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     @Published var missionNavigation = "Lås genstanden for at få næste bevægelse."
     @Published var retakeSlotIndex: Int? = nil
     @Published var retakeHint = "Tryk en grøn position for at tage billedet om."
-    private var sessionFilesBySlot: [Int: [URL]] = [:]
     private var targetPoint: ScanPoint?
     private var capturedSlots = Set<Int>()
     private var currentSlotIndex: Int?
@@ -59,6 +69,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func start(using session: ARSession) {
+        guard !savingPhoto else { return }
         guard Self.supportsLiDAR else {
             trackingText = "LiDAR-dybde er ikke understøttet på denne enhed."
             return
@@ -66,6 +77,10 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         self.session = session
         session.delegate = self
         session.delegateQueue = .main // ARKit callbacks and mission state stay on main thread.
+        if needsNewCoordinateSpace {
+            resetMission()
+            needsNewCoordinateSpace = false
+        }
         if !running && previousTimestamp == nil { resetMission() }
         let config = ARWorldTrackingConfiguration()
         config.worldAlignment = .gravity
@@ -75,7 +90,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             config.sceneReconstruction = .meshWithClassification
         }
         session.run(config, options: previousTimestamp == nil ? [.resetTracking, .removeExistingAnchors] : [])
-        DispatchQueue.main.async { self.running = true; self.trackingText = "Starter ARKit …" }
+        running = true
+        trackingText = "Starter ARKit …"
     }
 
     func stop() {
@@ -83,9 +99,38 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         self.running = false
         self.trackingText = "Sat på pause"
         self.missionReady = false
+        stableSince = nil
+        // A paused device may move. Preserve stored projects, but never assume the
+        // old world coordinates are still valid on resume without relocalization.
+        needsNewCoordinateSpace = true
+    }
+
+    func suspendCapture(_ suspended: Bool) {
+        captureSuspended = suspended
+        missionReady = false
+        stableSince = nil
+    }
+
+    func refreshLibrary() {
+        fileQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let library = try self.projectStore.library()
+                DispatchQueue.main.async {
+                    self.projects = library.projects
+                    self.libraryMessage = library.unreadableCount == 0 ? ""
+                        : "\(library.unreadableCount) projekt(er) kunne ikke læses. Filerne er bevaret i Filer → Scan3D."
+                }
+            } catch {
+                DispatchQueue.main.async { self.libraryMessage = "Biblioteket kunne ikke læses: \(error.localizedDescription)" }
+            }
+        }
     }
 
     func resetMission() {
+        guard !savingPhoto else { return }
+        activeProject = nil
+        automaticCapture.reset()
         savedCount = 0
         lastPhotoURL = nil
         targetPoint = nil
@@ -99,7 +144,6 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         capturedSlots.removeAll()
         retakeSlotIndex = nil
         retakeHint = "Tryk en grøn position for at tage billedet om."
-        sessionFilesBySlot.removeAll()
         currentSlotIndex = nil
         previousCamera = nil
         previousTimestamp = nil
@@ -116,6 +160,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     /// Approximate 3D target by projecting a center LiDAR depth reading along the camera forward ray.
     /// This is NOT a semantic segmentation, a calibrated object center, or an ARAnchor.
     func lockCenteredTarget() {
+        guard !savingPhoto else { return }
         guard running, let frame = session?.currentFrame else {
             guidanceText = "Start ARKit-kameraet først."
             return
@@ -132,6 +177,13 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         let matrix = frame.camera.transform
         let t = matrix.columns.3
         let forward = matrix.columns.2
+        // Commit the new project before replacing any in-memory target/state.
+        do { activeProject = try projectStore.create() }
+        catch {
+            guidanceText = "Kunne ikke oprette projekt: \(error.localizedDescription)"
+            return
+        }
+        automaticCapture.reset()
         targetPoint = ScanPoint(x: Double(t.x-forward.x*depth),
                                 y: Double(t.y-forward.y*depth),
                                 z: Double(t.z-forward.z*depth))
@@ -146,7 +198,6 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         capturedSlots.removeAll()
         retakeSlotIndex = nil
         retakeHint = "Tryk en grøn position for at tage billedet om."
-        sessionFilesBySlot.removeAll()
         missionCoverage = Array(repeating: false, count: 36)
         missionProgress = "0/36 vinkler"
         missionTargetLocked = true
@@ -157,11 +208,13 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         guidanceText = "Genstanden er låst cirka. Gå roligt rundt om den."
         missionNext = "Find første vinkel og hold telefonen stille."
         missionNavigation = "Ret kameraet mod genstanden, og gå roligt omkring den."
+        refreshLibrary()
     }
 
     /// A previously covered angle may be replaced once the iPhone is physically back at that slot.
     /// The requested index does NOT override ARKit slot verification or camera stability.
     func requestRetake(_ slot: Int) {
+        guard !savingPhoto else { return }
         guard missionTargetLocked, MissionRetake.select(slot: slot, covered: capturedSlots) != nil else {
             retakeHint = "Lås en genstand og vælg en grøn position med et eksisterende foto."
             return
@@ -180,7 +233,24 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
-        DispatchQueue.main.async { self.trackingText = "ARKit-fejl: \(error.localizedDescription)" }
+        running = false
+        missionReady = false
+        stableSince = nil
+        needsNewCoordinateSpace = true
+        trackingText = "ARKit-fejl: \(error.localizedDescription)"
+    }
+
+    func sessionWasInterrupted(_ session: ARSession) {
+        // Apple: do not pause inside this callback, or interruption-ended is lost.
+        running = false
+        missionReady = false
+        stableSince = nil
+        needsNewCoordinateSpace = true
+        trackingText = "Kamera afbrudt. Projektet er bevaret."
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        trackingText = "Tryk Fortsæt og lås objektet igen. Tidligere optagelser ligger i Mine scanninger."
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
@@ -196,7 +266,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
-        guard Self.supportsLiDAR else { return }
+        guard Self.supportsLiDAR, running else { return }
         let t = frame.camera.transform.columns.3
         let position = SIMD3<Float>(t.x, t.y, t.z)
         let depth = frame.smoothedSceneDepth.flatMap { Self.middleDepth($0.depthMap) }
@@ -253,6 +323,12 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             }
         } else {
             missionReady = false
+        }
+        if automaticCapture.shouldCapture(enabled: automaticPhotos, running: running,
+            suspended: captureSuspended, saving: savingPhoto, ready: missionReady,
+            slot: currentSlotIndex, covered: capturedSlots, retake: retakeSlotIndex,
+            timestamp: time) {
+            captureCurrentFrame()
         }
         let positionString = String(format: "X %.2f · Y %.2f · Z %.2f m", position.x, position.y, position.z)
         let distanceString = depth.map { String(format: "≈ %.2f m", $0) } ?? "Ingen gyldig dybde"
@@ -359,7 +435,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
 
     /// Save a camera frame and AR position locally; no network request or account required.
     func captureCurrentFrame() {
-        guard running, missionTargetLocked, missionReady,
+        guard !savingPhoto, !captureSuspended, running, missionTargetLocked, missionReady,
+              let project = activeProject,
               let frame = session?.currentFrame, let target = targetPoint else {
             guidanceText = "Vent på grønt lys og låst genstand, før du tager foto."
             return
@@ -385,21 +462,12 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             return
         }
         let slotKey = confirmed.slot.index
-        let image = CIImage(cvPixelBuffer: frame.capturedImage)
-        guard let jpg = ciContext.jpegRepresentation(of: image,
-                        colorSpace: CGColorSpaceCreateDeviceRGB(), options: [:]) else { return }
-        do {
-            let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Scan3DPhotos", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let filename = "frame-\(UUID().uuidString)"
-            let url = folder.appendingPathComponent(filename + ".jpg")
-            try jpg.write(to: url, options: .atomic)
-            let t = frame.camera.transform.columns.3
-            let replacement = retakeSlotIndex == slotKey && capturedSlots.contains(slotKey)
-            let metadata: [String: Any] = [
-                "photo": url.lastPathComponent, "replaces_previous_capture": replacement, "timestamp": Date().timeIntervalSince1970,
-                "arkit_session_position_m": [t.x,t.y,t.z],
+        let replacement = retakeSlotIndex == slotKey && capturedSlots.contains(slotKey)
+        let metadata: [String: Any] = [
+                "project_id": project.id.uuidString, "coordinate_space_id": project.coordinateSpaceID.uuidString,
+                "replaces_previous_capture": replacement, "timestamp": Date().timeIntervalSince1970,
+                "arkit_frame_timestamp": frame.timestamp,
+                "arkit_session_position_m": [tNow.x,tNow.y,tNow.z],
                 "center_depth_m": latestDistance as Any? ?? NSNull(),
                 "mission_slot_index": slotKey,
                 "mission_ring": slotKey / 12,
@@ -407,16 +475,73 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                 "locked_target_arkit_world_m": targetPoint.map { [$0.x, $0.y, $0.z] } ?? [],
                 "mission_alignment": "approximate, session-relative; not LiDAR-verified object identity",
                 "warning": "Relative ARKit coordinates. Not a calibrated object measurement."
-            ]
-            let json = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted])
-            try json.write(to: folder.appendingPathComponent(filename + ".json"), options: .atomic)
-            // Keep originals as a recoverable history; a retake becomes the current
-            // slot capture only after image and metadata have been saved atomically.
-            // No automatic deletion of the user's older photos.
-            sessionFilesBySlot[slotKey] = [url, folder.appendingPathComponent(filename + ".json")]
+        ]
+        let roi = CloudVertex(x: Float(target.x), y: Float(target.y), z: Float(target.z))
+        let perSlotCloud = PointCollector(resolution: cloud.resolution, maxPoints: 10_000)
+        let newPoints = LiDARDepthSampler.sample(frame: frame, into: perSlotCloud, target: roi)
+        let samples = perSlotCloud.snapshot()
+        var pendingDepth = depthPointsBySlot
+        pendingDepth[slotKey] = samples
+        let pendingCloud = PointCollector(resolution: cloud.resolution)
+        for position in pendingDepth.keys.sorted() {
+            for point in pendingDepth[position] ?? [] { pendingCloud.add(point, target: roi) }
+        }
+        let points = pendingCloud.snapshot()
+        savingPhoto = true
+        missionReady = false
+        fileQueue.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                let image = CIImage(cvPixelBuffer: frame.capturedImage)
+                guard let jpeg = self.ciContext.jpegRepresentation(of: image,
+                    colorSpace: CGColorSpaceCreateDeviceRGB(), options: [:]) else {
+                    throw ProjectStoreError.emptyFile
+                }
+                let saved = try self.projectStore.saveCapture(projectID: project.id, slot: slotKey,
+                    jpeg: jpeg, metadata: JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted]),
+                    thumbnail: Self.thumbnail(jpeg), pointCloud: GeometryExport.ply(points: points))
+                guard let capture = saved.currentCaptures.first(where: { $0.slot == slotKey }) else {
+                    throw ProjectStoreError.invalidManifest
+                }
+                let url = try self.projectStore.verifiedURL(capture.photo, projectID: project.id)
+                let cloudURL = try self.projectStore.verifiedURL(capture.pointCloud, projectID: project.id)
+                DispatchQueue.main.async {
+                    self.didSaveCapture(project: saved, slot: slotKey, replacement: replacement,
+                        samples: samples, points: points, newPoints: newPoints, photoURL: url, cloudURL: cloudURL)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.savingPhoto = false
+                    self.automaticPhotos = false
+                    self.guidanceText = "Foto blev ikke registreret: \(error.localizedDescription). Automatisk foto er sat på pause."
+                }
+            }
+        }
+    }
+
+    private static func thumbnail(_ jpeg: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 480
+              ] as CFDictionary) else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
+    }
+
+    private func didSaveCapture(project: ScanProject, slot: Int, replacement: Bool,
+                                samples: [CloudVertex], points: [CloudVertex], newPoints: Int,
+                                photoURL: URL, cloudURL: URL) {
+            savingPhoto = false
+            guard activeProject?.id == project.id else { refreshLibrary(); return }
+            activeProject = project
+            let slotKey = slot
             capturedSlots.insert(slotKey)
             retakeSlotIndex = nil
-            retakeHint = replacement ? "Genfoto gemt. Originalfilen er bevaret i Scan3DPhotos." : "Tryk en grøn position for at tage billedet om."
+            retakeHint = replacement ? "Genfoto gemt. Originalen er bevaret i projektet." : "Vælg en dækket position for at tage billedet om."
             missionCoverage[slotKey] = true
             missionProgress = "\(capturedSlots.count)/36 vinkler"
             missionReady = false
@@ -432,40 +557,38 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             if !replacement { savedCount += 1 }
             // Collect only depth points corresponding to a successfully saved photo.
             // Replacing a slot also replaces its depth samples; old poor readings are not retained.
-            let roi = targetPoint.map { CloudVertex(x:Float($0.x), y:Float($0.y), z:Float($0.z)) }
-            let perSlotCloud = PointCollector(resolution: cloud.resolution, maxPoints: 10_000)
-            let newPoints = LiDARDepthSampler.sample(frame:frame,into:perSlotCloud,target:roi)
-            depthPointsBySlot[slotKey] = perSlotCloud.snapshot()
+            depthPointsBySlot[slotKey] = samples
             cloud.clear()
-            for position in depthPointsBySlot.keys.sorted() {
-                for point in depthPointsBySlot[position] ?? [] { cloud.add(point,target:roi) }
-            }
+            for point in points { cloud.add(point, target: nil) }
             lidarPointCount = cloud.count
+            exportedCloudURL = cloudURL
+            // A previous manual mesh export describes an older capture state.
+            exportedMeshURL = nil
+            exportedTriangleCount = 0
             exportMessage = "LiDAR: \(newPoints) 3D-punkter fra dette foto. Gem som PLY eller OBJ."
-            lastPhotoURL = url
-        } catch {
-            DispatchQueue.main.async { self.guidanceText = "Kunne ikke gemme lokalt: \(error.localizedDescription)" }
-        }
+            lastPhotoURL = photoURL
+            refreshLibrary()
     }
     /// Preserve existing export files even if a new ARKit session starts.
     /// The point cloud is session-relative, approximate and excludes textures.
     func exportPLY() {
-        guard cloud.count > 0 else {
+        guard !savingPhoto, let project = activeProject, cloud.count > 0 else {
             exportMessage = "Ingen LiDAR-punkter endnu. Lås et mål, og tag fotos med stabil sporing."
             return
         }
         do {
-            let url = try exportLocation(ext:"ply")
-            try GeometryExport.ply(points:cloud.snapshot()).write(to:url,options:.atomic)
+            let url = try projectStore.saveExport(projectID: project.id,
+                data: GeometryExport.ply(points: cloud.snapshot()), ext: "ply")
             exportedCloudURL = url
             exportMessage = "PLY eksporteret: \(cloud.count) virkelige LiDAR-punkter."
+            refreshLibrary()
         } catch { exportMessage = "PLY kunne ikke gemmes: \(error.localizedDescription)" }
     }
 
     /// ARKit mesh can include nearby surfaces, even when clipped around a selected target.
     /// Export can contain holes and is not automatically 3D-printable.
     func exportOBJ() {
-        guard let p = targetPoint else {
+        guard !savingPhoto, let project = activeProject, let p = targetPoint else {
             exportMessage = "Lås først et mål med LiDAR, før du eksporterer rummets mesh."
             return
         }
@@ -480,19 +603,12 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             return
         }
         do {
-            let url = try exportLocation(ext:"obj")
-            try data.write(to:url,options:.atomic)
+            let url = try projectStore.saveExport(projectID: project.id, data: data, ext: "obj")
             exportedTriangleCount = count
             exportedMeshURL = url
             exportMessage = "OBJ gemt: \(count) ARKit-trekanter. Mesh kan have huller."
+            refreshLibrary()
         } catch { exportMessage = "OBJ kunne ikke gemmes: \(error.localizedDescription)" }
-    }
-
-    private func exportLocation(ext: String) throws -> URL {
-        let dir = FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
-            .appendingPathComponent("Scan3DLiDARExports", isDirectory:true)
-        try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
-        return dir.appendingPathComponent("Scan3D-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(6)).\(ext)")
     }
 
 }

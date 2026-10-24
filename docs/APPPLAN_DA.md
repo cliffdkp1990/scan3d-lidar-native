@@ -1,6 +1,12 @@
 # Scan3D — appplan med automatisk foto, video og 3D-objekter
 
-24. oktober 2026. Plan og prioriteret byggegrundlag, ikke en påstand om nye implementerede funktioner. Udgangspunktet er brugerens genfundne **Scan3D LiDAR – Pro Max v2** til iPhone 14 Pro Max. DroneHub bevares som et separat projekt.
+24. oktober 2026. Plan og prioriteret byggegrundlag. Udgangspunktet er brugerens genfundne **Scan3D LiDAR – Pro Max v2** til iPhone 14 Pro Max. DroneHub bevares som et separat projekt.
+
+## Aktuel reviewimplementering
+
+Kilden ligger nu direkte i scannerens repository via draft PR #1. Den næste ændring tilføjer automatisk foto efter godkendt vinkel samt `ProjectStore` og **Mine scanninger** med virkelige fotominiaturer, genåbning, SHA-256-kontrol og individuel fildeling. Genfoto bevarer tidligere optagelser. Punktsky gemmes sammen med hvert registreret foto. Manifestet opdateres først, når filerne er gemt og læst tilbage. Skrivefejl stopper automatisk foto; gemte projekter åbnes uden at genbruge AR-koordinater. Genoptagelse efter kamera-pause kræver nyt mål/projekt.
+
+Det er en reviewimplementering, der skal gennem CI og fysisk test. Den nye automatiske fotokontrol måler stadig ikke skarphed/eksponering. Video, foto-til-model, egentlig 3D-resultatviewer, samlet projektbackup/import og signeret installation er endnu ikke implementeret. Den oprindelige materialepakke er bevaret som historisk grundlag; den aktuelle kilde og denne faste appplan opdateres gennem GitHub-værktøjet uden ny ZIP.
 
 ## Den oplevelse, der skal bygges
 
@@ -13,8 +19,8 @@ Første skærm viser en stor **Ny scanning**-knap og visuelle kort med dine tidl
 | Område | Verificeret grundlag | Hvad der mangler |
 | --- | --- | --- |
 | Native iPhone-app | SwiftUI, ARKit, RealityKit, kamera og LiDAR-kode | Signeret installation og fysisk test |
-| Fotoguide | 36 positioner, frisk frame-kontrol, stabilitetskrav og genfoto | Automatisk udløser, varig projektstruktur og enklere brugerflow |
-| Gemte fotos | JPEG og metadata skrives lokalt; genfoto bevarer tidligere filer | Bibliotek, genåbning, eksport af samlet projekt og gendannelse |
+| Fotoguide | 36 positioner, frisk frame-kontrol, stabilitetskrav, genfoto og ny automatisk udløser i review | Fysisk test af automatisk optagelse, skarphed/eksponering og enklere samlet brugerflow |
+| Gemte fotos | Nyt projektmanifest med hashes, bibliotek, genåbning og bevarede genfotos i review | Fysisk afprøvning, samlet projektbackup/import og gendannelse af AR-mission |
 | 3D-geometri | Målt LiDAR-punktsky som PLY og ARKit-scenemesh som OBJ | Objektisolering, egentlig resultatvisning, kvalitetskontrol og mere detaljeret model |
 | Video | Ingen videooptagelse fundet i den hentede native kilde | Optagepipeline, afspilning, lagring og video som rekonstruktionsinput |
 | Rekonstruktion fra fotos | Ikke implementeret i den genfundne app | Object Capture-/fotogrammetriforløb |

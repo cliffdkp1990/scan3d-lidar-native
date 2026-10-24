@@ -33,6 +33,7 @@ struct ContentView: View {
     @StateObject private var engine = ScanEngine()
     @State private var resultSheet = false
     @State private var retakeSheet = false
+    @State private var librarySheet = false
     @State private var newTargetConfirmation = false
     @State private var floatReticle = false
     @Environment(\.scenePhase) private var scenePhase
@@ -44,7 +45,8 @@ struct ContentView: View {
                 Atelier.ink.ignoresSafeArea()
                 LinearGradient(colors:[Atelier.violet.opacity(0.27),.clear,Atelier.ink],startPoint:.topLeading,endPoint:.bottomTrailing)
                     .ignoresSafeArea().allowsHitTesting(false)
-                VStack(spacing:0) {
+                ScrollView {
+                  VStack(spacing:0) {
                     header
                     if ScanEngine.supportsLiDAR {
                         ZStack {
@@ -82,7 +84,7 @@ struct ContentView: View {
                             .padding(14)
                         }
                         .frame(maxWidth:.infinity)
-                        .frame(height:max(365,geom.size.height * 0.59))
+                        .frame(height:max(260,min(540,geom.size.height * 0.56)))
                         .clipShape(RoundedRectangle(cornerRadius:26))
                         .overlay(RoundedRectangle(cornerRadius:26).strokeBorder(Atelier.violet.opacity(0.55),lineWidth:1))
                         .padding(.horizontal,13)
@@ -91,21 +93,33 @@ struct ContentView: View {
                     }
                     if ScanEngine.supportsLiDAR { controls }
                     Spacer(minLength:0)
+                  }
                 }
             }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented:$resultSheet) { resultView.presentationDragIndicator(.visible) }
         .sheet(isPresented:$retakeSheet) { retakeView.presentationDragIndicator(.visible) }
+        .sheet(isPresented:$librarySheet) { ScanLibraryView(engine: engine) }
+        .onAppear { engine.refreshLibrary() }
+        .onChange(of:resultSheet) { _,_ in updateCaptureSuspension() }
+        .onChange(of:retakeSheet) { _,_ in updateCaptureSuspension() }
+        .onChange(of:librarySheet) { _,_ in updateCaptureSuspension() }
+        .onChange(of:newTargetConfirmation) { _,_ in updateCaptureSuspension() }
         .confirmationDialog("Starte en ny scanning?",isPresented:$newTargetConfirmation,titleVisibility:.visible) {
             Button("Lås nyt mål og nulstil mission",role:.destructive) { engine.lockCenteredTarget() }
         } message: {
-            Text("Den aktuelle LiDAR-punktsky nulstilles. Eksporter først, hvis du vil bevare den.")
+            Text("Gemte fotos og punktsky bevares i Mine scanninger. Et nyt mål får sit eget projekt.")
         }
         .onChange(of:scenePhase) { _,next in
+            updateCaptureSuspension()
             if next == .background { engine.stop() }
         }
         .sensoryFeedback(.success,trigger:engine.savedCount)
+    }
+
+    private func updateCaptureSuspension() {
+        engine.suspendCapture(scenePhase != .active || resultSheet || retakeSheet || librarySheet || newTargetConfirmation)
     }
 
     private var header: some View {
@@ -121,6 +135,11 @@ struct ContentView: View {
                     .tracking(-0.7).foregroundStyle(.white)
             }
             Spacer()
+            Button { librarySheet = true; engine.refreshLibrary() } label: {
+                Image(systemName:"photo.stack").font(.system(size:19,weight:.medium))
+                    .foregroundStyle(Atelier.cream).frame(width:48,height:48)
+                    .background(.white.opacity(0.11),in:Circle())
+            }.accessibilityLabel("Mine scanninger")
             Button { resultSheet = true } label: {
                 Image(systemName:"square.3.layers.3d").font(.system(size:19,weight:.medium))
                     .foregroundStyle(Atelier.cream).frame(width:48,height:48)
@@ -170,19 +189,28 @@ struct ContentView: View {
 
     private var controls: some View {
         VStack(spacing:12) {
+            Toggle(isOn: $engine.automaticPhotos) {
+                Label("Automatisk foto", systemImage:"camera.badge.ellipsis")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .tint(Atelier.rose)
+            Text(engine.savingPhoto ? "Gemmer foto og 3D-punkter …" : engine.guidanceText)
+                .font(.footnote).foregroundStyle(Atelier.muted)
+                .frame(maxWidth:.infinity,alignment:.leading)
+                .accessibilityLiveRegion(.polite)
             HStack(spacing:9) {
                 Button { if engine.missionTargetLocked { newTargetConfirmation = true } else { engine.lockCenteredTarget() } } label: {
                     Label(engine.missionTargetLocked ? "Nyt mål" : "Lås objekt", systemImage:"scope")
                         .font(.system(size:14,weight:.bold)).frame(maxWidth:.infinity,minHeight:49)
                 }
                 .buttonStyle(.bordered).tint(Atelier.rose)
-                .disabled(!engine.running)
+                .disabled(!engine.running || engine.savingPhoto)
                 Button { engine.captureCurrentFrame() } label: {
-                    Label("Tag foto",systemImage:"camera.fill")
+                    Label(engine.savingPhoto ? "Gemmer …" : (engine.retakeSlotIndex == nil ? "Tag foto" : "Tag om"),systemImage:"camera.fill")
                         .font(.system(size:15,weight:.heavy)).frame(maxWidth:.infinity,minHeight:49)
                 }
                 .buttonStyle(.borderedProminent).tint(Atelier.rose).foregroundStyle(Atelier.ink)
-                .disabled(!engine.missionReady)
+                .disabled(!engine.missionReady || engine.savingPhoto)
             }
             HStack(spacing:9) {
                 Button {
@@ -193,6 +221,7 @@ struct ContentView: View {
                         .font(.system(size:12,weight:.semibold))
                 }
                 .tint(Atelier.violet)
+                .disabled(engine.savingPhoto)
                 Button { engine.showWireframe.toggle() } label: {
                     Label("Vis 3D-mesh",systemImage:"cube.transparent")
                         .font(.system(size:12,weight:.semibold))
@@ -248,7 +277,7 @@ struct ContentView: View {
                             Image(systemName:"cube.transparent.fill")
                                 .font(.system(size:68,weight:.ultraLight))
                                 .foregroundStyle(Atelier.rose)
-                            Text("Din virkelige 3D-scan")
+                            Text("Optagelser og eksport")
                                 .font(.title2.bold())
                             Text("\(engine.lidarPointCount) LiDAR-punkter  ·  \(engine.savedCount) fotos")
                                 .font(.footnote).foregroundStyle(Atelier.muted)
@@ -261,11 +290,13 @@ struct ContentView: View {
                             .frame(maxWidth:.infinity,minHeight:51)
                     }
                     .buttonStyle(.borderedProminent).tint(Atelier.rose)
+                    .disabled(engine.savingPhoto)
                     Button { engine.exportOBJ() } label: {
                         Label("Gem 3D-mesh som OBJ",systemImage:"square.3.layers.3d")
                             .frame(maxWidth:.infinity,minHeight:51)
                     }
                     .buttonStyle(.bordered).tint(Atelier.rose)
+                    .disabled(engine.savingPhoto)
                     Text(engine.exportMessage).font(.subheadline).foregroundStyle(Atelier.muted)
                     if let file = engine.exportedCloudURL {
                         ShareLink(item:file) { Label("Del PLY-fil",systemImage:"square.and.arrow.up") }
