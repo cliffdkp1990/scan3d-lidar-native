@@ -468,7 +468,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                 "replaces_previous_capture": replacement, "timestamp": Date().timeIntervalSince1970,
                 "arkit_frame_timestamp": frame.timestamp,
                 "arkit_session_position_m": [tNow.x,tNow.y,tNow.z],
-                "center_depth_m": latestDistance as Any? ?? NSNull(),
+                "center_depth_m": frame.smoothedSceneDepth.flatMap { Self.middleDepth($0.depthMap) } as Any? ?? NSNull(),
                 "mission_slot_index": slotKey,
                 "mission_ring": slotKey / 12,
                 "mission_sector": slotKey % 12,

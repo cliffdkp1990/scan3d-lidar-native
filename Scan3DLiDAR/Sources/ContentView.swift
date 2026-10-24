@@ -197,7 +197,6 @@ struct ContentView: View {
             Text(engine.savingPhoto ? "Gemmer foto og 3D-punkter …" : engine.guidanceText)
                 .font(.footnote).foregroundStyle(Atelier.muted)
                 .frame(maxWidth:.infinity,alignment:.leading)
-                .accessibilityLiveRegion(.polite)
             HStack(spacing:9) {
                 Button { if engine.missionTargetLocked { newTargetConfirmation = true } else { engine.lockCenteredTarget() } } label: {
                     Label(engine.missionTargetLocked ? "Nyt mål" : "Lås objekt", systemImage:"scope")

@@ -75,16 +75,18 @@ private struct ScanProjectView: View {
                 }
                 Button(checking ? "Kontrollerer …" : "Kontrollér alle projektfiler") {
                     checking = true
+                    let verificationStore = store
+                    let verificationProject = project
                     Task {
                         let result = await Task.detached(priority: .userInitiated) { () -> String in
-                            do { try store.verify(project); return "Alle \(project.allFiles.count) registrerede filer har korrekt størrelse og SHA-256." }
+                            do { try verificationStore.verify(verificationProject); return "Alle \(verificationProject.allFiles.count) registrerede filer har korrekt størrelse og SHA-256." }
                             catch { return error.localizedDescription }
                         }.value
                         integrity = result
                         checking = false
                     }
                 }.disabled(checking).buttonStyle(.bordered)
-                if !integrity.isEmpty { Text(integrity).font(.footnote).accessibilityLiveRegion(.polite) }
+                if !integrity.isEmpty { Text(integrity).font(.footnote) }
                 Text("Fotos").font(.title2.bold())
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 16) {
                     ForEach(project.currentCaptures) { capture in
@@ -130,8 +132,11 @@ private struct StoredPhotoView: View {
         }
         .accessibilityLabel(failed ? "Billedfil mangler eller er beskadiget" : "Foto af den scannede genstand")
         .task(id: file.sha256) {
+            let imageStore = store
+            let imageFile = file
+            let imageProjectID = projectID
             let loaded = await Task.detached(priority: .utility) { () -> UIImage? in
-                guard let url = try? store.verifiedURL(file, projectID: projectID) else { return nil }
+                guard let url = try? imageStore.verifiedURL(imageFile, projectID: imageProjectID) else { return nil }
                 return UIImage(contentsOfFile: url.path)
             }.value
             guard !Task.isCancelled else { return }
@@ -158,8 +163,11 @@ private struct VerifiedScanShare: View {
             } else { ProgressView("Kontrollerer fil …") }
         }
         .task(id: file.sha256) {
+            let shareStore = store
+            let shareFile = file
+            let shareProjectID = projectID
             let result = await Task.detached(priority: .utility) { () -> Result<URL, Error> in
-                Result { try store.verifiedURL(file, projectID: projectID) }
+                Result { try shareStore.verifiedURL(shareFile, projectID: shareProjectID) }
             }.value
             guard !Task.isCancelled else { return }
             switch result {
