@@ -33,6 +33,8 @@ jobs:
           "$RUNNER_TEMP/capture-tests"
           swiftc Sources/GeometryExport.swift Tests/export/main.swift -o "$RUNNER_TEMP/export-tests"
           "$RUNNER_TEMP/export-tests"
+          swiftc Sources/GeometryExport.swift Sources/GeometryPreview.swift Tests/geometry-preview/main.swift -o "$RUNNER_TEMP/geometry-preview-tests"
+          "$RUNNER_TEMP/geometry-preview-tests"
           swiftc Sources/AutomaticCapture.swift Tests/automatic/main.swift -o "$RUNNER_TEMP/automatic-tests"
           "$RUNNER_TEMP/automatic-tests"
           swiftc Sources/ProjectStore.swift Tests/projects/main.swift -o "$RUNNER_TEMP/project-tests"

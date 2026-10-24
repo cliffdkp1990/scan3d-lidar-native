@@ -322,6 +322,15 @@ struct ContentView: View {
                     .buttonStyle(.bordered).tint(Atelier.rose)
                     .disabled(engine.savingPhoto)
                     Text(engine.exportMessage).font(.subheadline).foregroundStyle(Atelier.muted)
+                    if let project = engine.projects.first(where: { $0.id == engine.activeProject?.id }),
+                       let model = project.exports.last?.file ?? project.captures.last?.pointCloud {
+                        NavigationLink {
+                            StoredGeometryViewer(file: model, projectID: project.id, store: engine.projectStore)
+                        } label: {
+                            Label("Se seneste gemte 3D-data", systemImage: "view.3d")
+                            .frame(maxWidth: .infinity, minHeight: 51)
+                        }.buttonStyle(.bordered).tint(Atelier.rose)
+                    }
                     if let file = engine.exportedCloudURL {
                         ShareLink(item:file) { Label("Del PLY-fil",systemImage:"square.and.arrow.up") }
                             .font(.subheadline.bold()).tint(Atelier.rose)

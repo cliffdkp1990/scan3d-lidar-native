@@ -8,7 +8,9 @@ Kilden ligger nu direkte i scannerens repository via draft PR #1. Den næste æn
 
 Den efterfølgende reviewændring tilføjer kameravideo fra den eksisterende ARKit-stream, automatisk start med et nyt låst objekt, Start/Stop og afspilning/deling i biblioteket. Videoen har ingen lyd, bruger H.264/MOV med højst 1280 pixels på langsiden og 15 billeder/sekund og fastholder retningen fra start. Optagelsen afsluttes ved pause/afbrydelse, varme, lav lagerplads eller fem minutter. Pending-journal og streaming-SHA-256 bevarer filspor ved afbrydelse. Gendannelse registrerer kun filer, der allerede kan læses og afkodes; den reparerer ikke en ødelagt MOV-fil. Ældre v1-projekter kan stadig åbnes.
 
-Det er reviewkode, der skal gennem CI og fysisk test. Den automatiske fotokontrol måler stadig ikke skarphed/eksponering. Foto-/video-til-model, egentlig 3D-resultatviewer, samlet projektbackup/import og signeret installation er endnu ikke implementeret. Videotests bruger syntetiske billeder med rigtig kodning og afkodning på macOS; de beviser ikke fysisk iPhone-optagelse. Den oprindelige materialepakke er bevaret som historisk grundlag; den aktuelle kilde og denne faste appplan opdateres gennem GitHub-værktøjet uden ny ZIP.
+Reviewkilden har nu en RealityKit-resultatviewer til gemte PLY-punktskyer og OBJ-mesh. Den åbnes fra projektbiblioteket og fra resultatets seneste gemte geometri. Filens størrelse og SHA-256 kontrolleres før parsing. Træk/knib, dreje-/zoomknapper, nulstilling og lys baggrund ændrer kun visningen; originale filer bevares. Punktskyer vises som små markører med højst 20.000 udvalgte visningspunkter. De er ikke rekonstruerede overflader. Udstrækningen vises i AR-akser som vejledende centimeter. Parseren er begrænset til appens egne ASCII-PLY og trekantede OBJ uden materialer, højst 32 MiB, 480.000 hjørner og 160.000 trekanter.
+
+Det er reviewkode, der skal gennem CI og fysisk test. Den automatiske fotokontrol måler stadig ikke skarphed/eksponering. Foto-/video-til-model, samlet projektbackup/import og signeret installation er endnu ikke implementeret. Den nye 3D-viewers rendering, bevægelser, tilgængelighed og ydelse skal afprøves i native runtime; kompilering og parsertests beviser ikke den visuelle oplevelse på iPhone. Videotests bruger syntetiske billeder med rigtig kodning og afkodning på macOS; de beviser ikke fysisk iPhone-optagelse. Den oprindelige materialepakke er bevaret som historisk grundlag; den aktuelle kilde og denne faste appplan opdateres gennem GitHub-værktøjet uden ny ZIP.
 
 ## Den oplevelse, der skal bygges
 
@@ -23,7 +25,7 @@ Første skærm viser en stor **Ny scanning**-knap og visuelle kort med dine tidl
 | Native iPhone-app | SwiftUI, ARKit, RealityKit, kamera og LiDAR-kode | Signeret installation og fysisk test |
 | Fotoguide | 36 positioner, frisk frame-kontrol, stabilitetskrav, genfoto og ny automatisk udløser i review | Fysisk test af automatisk optagelse, skarphed/eksponering og enklere samlet brugerflow |
 | Gemte fotos | Nyt projektmanifest med hashes, bibliotek, genåbning og bevarede genfotos i review | Fysisk afprøvning, samlet projektbackup/import og gendannelse af AR-mission |
-| 3D-geometri | Målt LiDAR-punktsky som PLY og ARKit-scenemesh som OBJ | Objektisolering, egentlig resultatvisning, kvalitetskontrol og mere detaljeret model |
+| 3D-geometri | Målt LiDAR-punktsky som PLY og ARKit-scenemesh som OBJ; ny RealityKit-resultatviewer i review | Native visuel afprøvning, objektisolering, kvalitetskontrol og mere detaljeret model |
 | Video | Ny ARKit-baseret optagepipeline, lagring, afspilning og fildeling i review | Fysisk kamera-/ressourcetest og video som rekonstruktionsinput |
 | Rekonstruktion fra fotos | Ikke implementeret i den genfundne app | Object Capture-/fotogrammetriforløb |
 | Bygning | Seneste GitHub-test og usignerede Simulator-build bestået | Signeret fysisk enhedsbuild/TestFlight |
@@ -148,7 +150,7 @@ Først sikres installation, lagring og fysisk baseline. Derefter færdiggøres a
 
 ## Referencer og sporbarhed
 
-- Kode: `01_Native_aktuel/Scan3DLiDAR/Sources/` i materialepakken. `ScanEngine.swift` indeholder foto- og LiDAR-forløbet; `ContentView.swift` har UI og det nuværende resultatark. Der findes endnu ingen rigtig modelviewer i resultatarket.
+- Aktuel kilde: `Scan3DLiDAR/Sources/` i scannerens repository. `GeometryPreview.swift` læser og validerer gemt geometri; `GeometryViewer.swift` viser den i RealityKit. `01_Native_aktuel/` i materialepakken er den historiske kopi, ikke den løbende arbejdsmappe.
 - CI: [GitHub run 40053563785](https://github.com/cliffdkp1990/scan3d-lidar-native/actions/runs/40053563785).
 - [Apple ObjectCaptureSession](https://developer.apple.com/documentation/realitykit/objectcapturesession): automatisk optagelse, enhedsunderstøttelse og særskilt rekonstruktionsfase.
 - [Apple ARFrame timestamp](https://developer.apple.com/documentation/arkit/arframe/timestamp): sammenhæng mellem kameraets frames og optagetid. Pipeline og videoydelse er forslag, som skal implementeres og måles.

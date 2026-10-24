@@ -91,9 +91,22 @@ private struct ScanProjectView: View {
                 }
                 if !recoveryMessage.isEmpty { Text(recoveryMessage).font(.footnote) }
                 if let latest = project.captures.last {
+                    NavigationLink {
+                        StoredGeometryViewer(file: latest.pointCloud, projectID: project.id, store: store)
+                    } label: {
+                        Label("Se seneste punktsky i 3D", systemImage: "cube.transparent")
+                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                    }.buttonStyle(.borderedProminent)
                     VerifiedScanShare(file: latest.pointCloud, projectID: project.id, store: store, title: "Senest gemte 3D-punktsky (PLY)")
                 }
                 ForEach(project.exports) { exported in
+                    NavigationLink {
+                        StoredGeometryViewer(file: exported.file, projectID: project.id, store: store)
+                    } label: {
+                        Label("Se \(exported.file.name.pathExtension.uppercased()) i 3D · \(exported.createdAt.formatted(date: .omitted, time: .shortened))",
+                            systemImage: "view.3d")
+                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    }.buttonStyle(.bordered)
                     VerifiedScanShare(file: exported.file, projectID: project.id, store: store,
                         title: "Del \(exported.file.name.pathExtension.uppercased()) · \(exported.createdAt.formatted(date: .omitted, time: .shortened))")
                 }
