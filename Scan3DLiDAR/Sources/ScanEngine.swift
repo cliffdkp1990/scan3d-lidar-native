@@ -1,0 +1,498 @@
+import ARKit
+import Combine
+import CoreImage
+import Foundation
+import simd
+import Vision
+
+/// Native Scan3D prototype for LiDAR-capable iPhones. All image processing is on-device.
+/// World position is in ARKit session coordinates (meters), not a survey-grade global position.
+final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
+    @Published var distanceText = "–"
+    @Published var positionText = "–"
+    @Published var trackingText = "Tryk Start"
+    @Published var subjectText = "Intet objekt foreslået"
+    @Published var orientationText = "–"
+    @Published var guidanceText = "Peg mod genstanden, og gå roligt rundt om den."
+    @Published var savedCount = 0
+    @Published var lidarPointCount = 0
+    @Published var exportedCloudURL: URL?
+    @Published var exportedMeshURL: URL?
+    @Published var exportedTriangleCount = 0
+    @Published var exportMessage = "Tag billeder fra flere vinkler for at opbygge en LiDAR-punktsky."
+    @Published var showWireframe = true
+    private let cloud = PointCollector()
+    private var depthPointsBySlot: [Int: [CloudVertex]] = [:]
+    var hasMeshSupport: Bool { ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) }
+
+    @Published var lastPhotoURL: URL?
+    @Published var detectedRect: CGRect? // normalized Vision coordinates, diagnostic only
+    @Published var running = false
+    @Published var missionTargetLocked = false
+    @Published var missionReady = false
+    @Published var missionCurrentSlot = "Lås genstanden for at begynde"
+    @Published var missionCoverage: [Bool] = Array(repeating: false, count: 36)
+    @Published var missionNext = "Først: peg på genstanden, og tryk Lås genstand."
+    @Published var missionProgress = "0/36 vinkler"
+    @Published var missionNavigation = "Lås genstanden for at få næste bevægelse."
+    @Published var retakeSlotIndex: Int? = nil
+    @Published var retakeHint = "Tryk en grøn position for at tage billedet om."
+    private var sessionFilesBySlot: [Int: [URL]] = [:]
+    private var targetPoint: ScanPoint?
+    private var capturedSlots = Set<Int>()
+    private var currentSlotIndex: Int?
+    private var previousCamera: ScanPoint?
+    private var previousTimestamp: TimeInterval?
+    private var stableSince: TimeInterval?
+
+    weak var session: ARSession?
+    private let visionQueue = DispatchQueue(label: "dk.scan3d.vision", qos: .userInitiated)
+    private var lastVisionTime: TimeInterval = 0
+    private var visionBusy = false
+    private let ciContext = CIContext()
+    private var latestDistance: Float?
+    private var latestPosition: SIMD3<Float>?
+
+    static var supportsLiDAR: Bool {
+        ARWorldTrackingConfiguration.isSupported &&
+        ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth)
+    }
+
+    func start(using session: ARSession) {
+        guard Self.supportsLiDAR else {
+            trackingText = "LiDAR-dybde er ikke understøttet på denne enhed."
+            return
+        }
+        self.session = session
+        session.delegate = self
+        session.delegateQueue = .main // ARKit callbacks and mission state stay on main thread.
+        if !running && previousTimestamp == nil { resetMission() }
+        let config = ARWorldTrackingConfiguration()
+        config.worldAlignment = .gravity
+        config.planeDetection = [.horizontal, .vertical]
+        config.frameSemantics.insert(.smoothedSceneDepth)
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+            config.sceneReconstruction = .meshWithClassification
+        }
+        session.run(config, options: previousTimestamp == nil ? [.resetTracking, .removeExistingAnchors] : [])
+        DispatchQueue.main.async { self.running = true; self.trackingText = "Starter ARKit …" }
+    }
+
+    func stop() {
+        session?.pause()
+        self.running = false
+        self.trackingText = "Sat på pause"
+        self.missionReady = false
+    }
+
+    func resetMission() {
+        savedCount = 0
+        lastPhotoURL = nil
+        targetPoint = nil
+        cloud.clear()
+        depthPointsBySlot.removeAll()
+        lidarPointCount = 0
+        exportedCloudURL = nil
+        exportedMeshURL = nil
+        exportedTriangleCount = 0
+        exportMessage = "Scan flere vinkler, og eksporter derefter PLY eller OBJ."
+        capturedSlots.removeAll()
+        retakeSlotIndex = nil
+        retakeHint = "Tryk en grøn position for at tage billedet om."
+        sessionFilesBySlot.removeAll()
+        currentSlotIndex = nil
+        previousCamera = nil
+        previousTimestamp = nil
+        stableSince = nil
+        missionTargetLocked = false
+        missionReady = false
+        missionCoverage = Array(repeating: false, count: 36)
+        missionProgress = "0/36 vinkler"
+        missionNavigation = "Lås genstanden for at få næste bevægelse."
+        missionCurrentSlot = "Lås genstanden for at begynde"
+        missionNext = "Peg på genstanden, og tryk Lås genstand."
+    }
+
+    /// Approximate 3D target by projecting a center LiDAR depth reading along the camera forward ray.
+    /// This is NOT a semantic segmentation, a calibrated object center, or an ARAnchor.
+    func lockCenteredTarget() {
+        guard running, let frame = session?.currentFrame else {
+            guidanceText = "Start ARKit-kameraet først."
+            return
+        }
+        guard case .normal = frame.camera.trackingState else {
+            guidanceText = "Vent på stabil sporing, før du låser målet."
+            return
+        }
+        guard let depthBuffer = frame.smoothedSceneDepth?.depthMap,
+              let depth = Self.middleDepth(depthBuffer), depth >= 0.3, depth <= 2.2 else {
+            guidanceText = "Peg på en synlig overflade mellem ca. 30 cm og 2,2 m."
+            return
+        }
+        let matrix = frame.camera.transform
+        let t = matrix.columns.3
+        let forward = matrix.columns.2
+        targetPoint = ScanPoint(x: Double(t.x-forward.x*depth),
+                                y: Double(t.y-forward.y*depth),
+                                z: Double(t.z-forward.z*depth))
+        cloud.clear()
+        depthPointsBySlot.removeAll()
+        lidarPointCount = 0
+        exportedCloudURL = nil
+        exportedMeshURL = nil
+        exportedTriangleCount = 0
+        savedCount = 0
+        lastPhotoURL = nil
+        capturedSlots.removeAll()
+        retakeSlotIndex = nil
+        retakeHint = "Tryk en grøn position for at tage billedet om."
+        sessionFilesBySlot.removeAll()
+        missionCoverage = Array(repeating: false, count: 36)
+        missionProgress = "0/36 vinkler"
+        missionTargetLocked = true
+        missionReady = false
+        stableSince = nil
+        previousCamera = nil
+        currentSlotIndex = nil
+        guidanceText = "Genstanden er låst cirka. Gå roligt rundt om den."
+        missionNext = "Find første vinkel og hold telefonen stille."
+        missionNavigation = "Ret kameraet mod genstanden, og gå roligt omkring den."
+    }
+
+    /// A previously covered angle may be replaced once the iPhone is physically back at that slot.
+    /// The requested index does NOT override ARKit slot verification or camera stability.
+    func requestRetake(_ slot: Int) {
+        guard missionTargetLocked, MissionRetake.select(slot: slot, covered: capturedSlots) != nil else {
+            retakeHint = "Lås en genstand og vælg en grøn position med et eksisterende foto."
+            return
+        }
+        retakeSlotIndex = slot
+        let selected = ScanSlot(ring: slot / 12, sector: slot % 12)
+        retakeHint = "Tag om: \(selected.label). Gå tilbage til samme vinkel; foto tages kun ved grønt lys."
+        missionNext = "Genfoto: \(selected.label)"
+        missionReady = false
+    }
+
+    func cancelRetake() {
+        retakeSlotIndex = nil
+        retakeHint = "Genfotografering annulleret. Tidligere billeder er bevaret."
+        missionReady = false
+    }
+
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        DispatchQueue.main.async { self.trackingText = "ARKit-fejl: \(error.localizedDescription)" }
+    }
+
+    func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        DispatchQueue.main.async { self.trackingText = self.name(for: camera.trackingState) }
+    }
+
+    private func name(for tracking: ARCamera.TrackingState) -> String {
+        switch tracking {
+        case .normal: return "Position følges"
+        case .notAvailable: return "Sporing ikke tilgængelig"
+        case .limited: return "Begrænset sporing – bevæg telefonen langsomt"
+        }
+    }
+
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        guard Self.supportsLiDAR else { return }
+        let t = frame.camera.transform.columns.3
+        let position = SIMD3<Float>(t.x, t.y, t.z)
+        let depth = frame.smoothedSceneDepth.flatMap { Self.middleDepth($0.depthMap) }
+        latestPosition = position
+        latestDistance = depth
+        let cameraPoint = ScanPoint(x: Double(position.x), y: Double(position.y), z: Double(position.z))
+        let forwardColumn = frame.camera.transform.columns.2
+        let lookDirection = ScanPoint(x: -Double(forwardColumn.x),
+                                      y: -Double(forwardColumn.y),
+                                      z: -Double(forwardColumn.z))
+        let time = frame.timestamp
+        let velocity: Double
+        if let last = previousCamera, let lastTime = previousTimestamp, time > lastTime {
+            velocity = (cameraPoint-last).length / (time-lastTime)
+        } else { velocity = Double.infinity }
+        previousCamera = cameraPoint
+        previousTimestamp = time
+        let still = velocity < 0.13
+        if !still { stableSince = nil }
+        else if stableSince == nil { stableSince = time }
+        let heldSteady = stableSince.map { time-$0 > 0.65 } ?? false
+        if let target = targetPoint {
+            let trackingGood: Bool
+            if case .normal = frame.camera.trackingState { trackingGood = true } else { trackingGood = false }
+            if let feedback = MissionGeometry.evaluate(camera: cameraPoint,
+                 forward: lookDirection, target: target,
+                 trackingGood: trackingGood, still: heldSteady) {
+                currentSlotIndex = feedback.slot.index
+                missionCurrentSlot = feedback.slot.label
+                let alreadyCaptured = capturedSlots.contains(feedback.slot.index)
+                let retakeThisSlot = MissionRetake.canCapture(slot: feedback.slot.index,
+                    covered: capturedSlots, retake: retakeSlotIndex, cameraReady: feedback.ready)
+                missionReady = retakeThisSlot
+                guidanceText = alreadyCaptured && retakeSlotIndex != feedback.slot.index
+                    ? "Denne vinkel er allerede dækket. Vælg den grønne position, hvis billedet skal tages om."
+                    : feedback.ready && retakeSlotIndex == feedback.slot.index
+                        ? "Klar til genfoto: \(feedback.slot.label)."
+                        : feedback.instruction
+                if let desired = retakeSlotIndex {
+                    let retakeSlot = ScanSlot(ring: desired / 12, sector: desired % 12)
+                    let route = MissionRoute.navigateTo(from: feedback.slot, target: retakeSlot)
+                    missionNext = "Genfoto: \(retakeSlot.label)"
+                    missionNavigation = route.message
+                } else if let route = MissionRoute.navigate(from: feedback.slot, covered: capturedSlots) {
+                    missionNext = "Næste ledige: \(route.target.label)."
+                    missionNavigation = route.message
+                } else {
+                    missionNext = "Alle 36 positioner registreret – tjek billederne før 3D-behandling."
+                    missionNavigation = "Missionen er dækket. Kontrollér fotos for sløring og overlap."
+                }
+            } else {
+                missionReady = false
+                guidanceText = "Flyt lidt tilbage fra den låste genstand."
+            }
+        } else {
+            missionReady = false
+        }
+        let positionString = String(format: "X %.2f · Y %.2f · Z %.2f m", position.x, position.y, position.z)
+        let distanceString = depth.map { String(format: "≈ %.2f m", $0) } ?? "Ingen gyldig dybde"
+        let moveAdvice: String
+        if let d = depth, d < 0.28 { moveAdvice = "Gå lidt længere fra motivet." }
+        else if let d = depth, d > 1.6 { moveAdvice = "Gå lidt tættere på motivet." }
+        else if depth == nil { moveAdvice = "Ret kameraet mod en synlig, ikke-blank overflade." }
+        else { moveAdvice = "God afstand. Gå langsomt rundt og bevar overlap." }
+        DispatchQueue.main.async {
+            self.distanceText = distanceString
+            self.positionText = positionString
+            if self.targetPoint == nil { self.guidanceText = moveAdvice }
+        }
+        // Throttle Vision inference to ~1 frame/s to avoid saturating iPhone CPU/GPU.
+        let timestamp = frame.timestamp
+        if timestamp - lastVisionTime > 1.0 && !visionBusy {
+            lastVisionTime = timestamp
+            visionBusy = true
+            let image = frame.capturedImage
+            visionQueue.async { [weak self] in
+                self?.analyze(image: image)
+                DispatchQueue.main.async { self?.visionBusy = false }
+            }
+        }
+    }
+
+    /// Center sample, *not* a depth reading of a segmented object or calibrated measurement.
+    private static func middleDepth(_ buffer: CVPixelBuffer) -> Float? {
+        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_DepthFloat32 else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let ptr = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        let row = CVPixelBufferGetBytesPerRow(buffer) / MemoryLayout<Float32>.size
+        let floats = ptr.assumingMemoryBound(to: Float32.self)
+        let cx = width / 2, cy = height / 2
+        var values: [Float] = []
+        for y in max(0,cy-2)...min(height-1,cy+2) {
+            for x in max(0,cx-2)...min(width-1,cx+2) {
+                let v = floats[y*row+x]
+                if v.isFinite && v > 0.05 && v < 10 { values.append(v) }
+            }
+        }
+        if values.isEmpty { return nil }
+        values.sort()
+        return values[values.count/2]
+    }
+
+    private func analyze(image: CVPixelBuffer) {
+        let handler = VNImageRequestHandler(cvPixelBuffer: image, orientation: .right, options: [:])
+        let foreground = VNGenerateForegroundInstanceMaskRequest()
+        let labels = VNClassifyImageRequest()
+        do {
+            try handler.perform([foreground, labels])
+            let rect = Self.foregroundRect(from: foreground.results?.first)
+            // Classification is of the entire image, not guaranteed to be the masked object.
+            let possible = labels.results?.first
+            let caption: String
+            if let possible = possible, possible.confidence >= 0.35 {
+                caption = "Muligt motiv: \(possible.identifier) (\(Int(possible.confidence*100)) %)"
+            } else {
+                caption = rect == nil ? "Intet tydeligt forgrundsobjekt" : "Forgrundsobjekt fundet – ukendt type"
+            }
+            let orientation: String
+            if let r = rect, r.height > r.width*1.3 { orientation = "Lodret (forslag)" }
+            else if let r = rect, r.width > r.height*1.3 { orientation = "Vandret (forslag)" }
+            else { orientation = "Valgfri" }
+            DispatchQueue.main.async {
+                self.detectedRect = rect
+                self.subjectText = caption
+                self.orientationText = orientation
+            }
+        } catch {
+            DispatchQueue.main.async {
+                self.subjectText = "Vision kunne ikke analysere billedet. Ret kameraet manuelt."
+                self.detectedRect = nil
+            }
+        }
+    }
+
+    /// The low-res instance mask is used to find a rough subject region for a UI hint.
+    /// No exact image-aligned overlay is claimed before testing orientation transforms on-device.
+    private static func foregroundRect(from observation: VNInstanceMaskObservation?) -> CGRect? {
+        guard let obs = observation, !obs.allInstances.isEmpty else { return nil }
+        let mask = obs.instanceMask
+        guard CVPixelBufferGetPixelFormatType(mask) == kCVPixelFormatType_OneComponent8 else { return nil }
+        CVPixelBufferLockBaseAddress(mask, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(mask, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(mask) else { return nil }
+        let w = CVPixelBufferGetWidth(mask), h = CVPixelBufferGetHeight(mask)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(mask)
+        let pixels = base.assumingMemoryBound(to: UInt8.self)
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in Swift.stride(from: 0, to: h, by: 2) {
+            for x in Swift.stride(from: 0, to: w, by: 2) where pixels[y*bytesPerRow+x] != 0 {
+                minX = min(minX,x); maxX = max(maxX,x)
+                minY = min(minY,y); maxY = max(maxY,y)
+            }
+        }
+        guard maxX > minX && maxY > minY else { return nil }
+        return CGRect(x: CGFloat(minX)/CGFloat(w), y: CGFloat(minY)/CGFloat(h),
+                      width: CGFloat(maxX-minX)/CGFloat(w), height: CGFloat(maxY-minY)/CGFloat(h))
+    }
+
+    /// Save a camera frame and AR position locally; no network request or account required.
+    func captureCurrentFrame() {
+        guard running, missionTargetLocked, missionReady,
+              let frame = session?.currentFrame, let target = targetPoint else {
+            guidanceText = "Vent på grønt lys og låst genstand, før du tager foto."
+            return
+        }
+        // The camera may move between the last delegate callback and a tap. Re-check
+        // the actual frame to prevent mislabeled positions or accidental retakes.
+        let tNow = frame.camera.transform.columns.3
+        let fNow = frame.camera.transform.columns.2
+        let cameraNow = ScanPoint(x:Double(tNow.x), y:Double(tNow.y), z:Double(tNow.z))
+        let forwardNow = ScanPoint(x:-Double(fNow.x), y:-Double(fNow.y), z:-Double(fNow.z))
+        let trackingGood: Bool
+        if case .normal = frame.camera.trackingState { trackingGood = true } else { trackingGood = false }
+        let captureFresh = previousTimestamp.map {
+            frame.timestamp >= $0 && frame.timestamp-$0 < 0.30
+        } ?? false
+        let heldSteady = stableSince.map { frame.timestamp-$0 > 0.65 } ?? false
+        guard captureFresh, let confirmed = CaptureValidation.approve(
+            camera:cameraNow, forward:forwardNow, target:target,
+            trackingGood:trackingGood, heldSteady:heldSteady,
+            expectedSlot:currentSlotIndex, covered:capturedSlots, retake:retakeSlotIndex) else {
+            missionReady = false
+            guidanceText = "Telefonen flyttede sig, eller sporingen blev usikker. Hold stille og prøv igen."
+            return
+        }
+        let slotKey = confirmed.slot.index
+        let image = CIImage(cvPixelBuffer: frame.capturedImage)
+        guard let jpg = ciContext.jpegRepresentation(of: image,
+                        colorSpace: CGColorSpaceCreateDeviceRGB(), options: [:]) else { return }
+        do {
+            let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Scan3DPhotos", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let filename = "frame-\(UUID().uuidString)"
+            let url = folder.appendingPathComponent(filename + ".jpg")
+            try jpg.write(to: url, options: .atomic)
+            let t = frame.camera.transform.columns.3
+            let replacement = retakeSlotIndex == slotKey && capturedSlots.contains(slotKey)
+            let metadata: [String: Any] = [
+                "photo": url.lastPathComponent, "replaces_previous_capture": replacement, "timestamp": Date().timeIntervalSince1970,
+                "arkit_session_position_m": [t.x,t.y,t.z],
+                "center_depth_m": latestDistance as Any? ?? NSNull(),
+                "mission_slot_index": slotKey,
+                "mission_ring": slotKey / 12,
+                "mission_sector": slotKey % 12,
+                "locked_target_arkit_world_m": targetPoint.map { [$0.x, $0.y, $0.z] } ?? [],
+                "mission_alignment": "approximate, session-relative; not LiDAR-verified object identity",
+                "warning": "Relative ARKit coordinates. Not a calibrated object measurement."
+            ]
+            let json = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted])
+            try json.write(to: folder.appendingPathComponent(filename + ".json"), options: .atomic)
+            // Keep originals as a recoverable history; a retake becomes the current
+            // slot capture only after image and metadata have been saved atomically.
+            // No automatic deletion of the user's older photos.
+            sessionFilesBySlot[slotKey] = [url, folder.appendingPathComponent(filename + ".json")]
+            capturedSlots.insert(slotKey)
+            retakeSlotIndex = nil
+            retakeHint = replacement ? "Genfoto gemt. Originalfilen er bevaret i Scan3DPhotos." : "Tryk en grøn position for at tage billedet om."
+            missionCoverage[slotKey] = true
+            missionProgress = "\(capturedSlots.count)/36 vinkler"
+            missionReady = false
+            stableSince = nil
+            if let route = MissionRoute.navigate(
+                from: ScanSlot(ring:slotKey/12, sector:slotKey%12), covered:capturedSlots) {
+                missionNext = "Næste: \(route.target.label)."
+                missionNavigation = route.message
+            } else {
+                missionNext = "36/36 dækket. Gennemgå fotos, før du fortsætter."
+                missionNavigation = "Alle 36 positioner dækket. Kontrollér skarphed og overlap."
+            }
+            if !replacement { savedCount += 1 }
+            // Collect only depth points corresponding to a successfully saved photo.
+            // Replacing a slot also replaces its depth samples; old poor readings are not retained.
+            let roi = targetPoint.map { CloudVertex(x:Float($0.x), y:Float($0.y), z:Float($0.z)) }
+            let perSlotCloud = PointCollector(resolution: cloud.resolution, maxPoints: 10_000)
+            let newPoints = LiDARDepthSampler.sample(frame:frame,into:perSlotCloud,target:roi)
+            depthPointsBySlot[slotKey] = perSlotCloud.snapshot()
+            cloud.clear()
+            for position in depthPointsBySlot.keys.sorted() {
+                for point in depthPointsBySlot[position] ?? [] { cloud.add(point,target:roi) }
+            }
+            lidarPointCount = cloud.count
+            exportMessage = "LiDAR: \(newPoints) 3D-punkter fra dette foto. Gem som PLY eller OBJ."
+            lastPhotoURL = url
+        } catch {
+            DispatchQueue.main.async { self.guidanceText = "Kunne ikke gemme lokalt: \(error.localizedDescription)" }
+        }
+    }
+    /// Preserve existing export files even if a new ARKit session starts.
+    /// The point cloud is session-relative, approximate and excludes textures.
+    func exportPLY() {
+        guard cloud.count > 0 else {
+            exportMessage = "Ingen LiDAR-punkter endnu. Lås et mål, og tag fotos med stabil sporing."
+            return
+        }
+        do {
+            let url = try exportLocation(ext:"ply")
+            try GeometryExport.ply(points:cloud.snapshot()).write(to:url,options:.atomic)
+            exportedCloudURL = url
+            exportMessage = "PLY eksporteret: \(cloud.count) virkelige LiDAR-punkter."
+        } catch { exportMessage = "PLY kunne ikke gemmes: \(error.localizedDescription)" }
+    }
+
+    /// ARKit mesh can include nearby surfaces, even when clipped around a selected target.
+    /// Export can contain holes and is not automatically 3D-printable.
+    func exportOBJ() {
+        guard let p = targetPoint else {
+            exportMessage = "Lås først et mål med LiDAR, før du eksporterer rummets mesh."
+            return
+        }
+        guard hasMeshSupport, let frame = session?.currentFrame else {
+            exportMessage = "Ingen ARKit-mesh til rådighed. Bevæg telefonen rundt om objektet."
+            return
+        }
+        let roi = CloudVertex(x:Float(p.x),y:Float(p.y),z:Float(p.z))
+        let (data,count) = LiDARSceneMesh.export(frame:frame,target:roi)
+        guard count > 0 else {
+            exportMessage = "Mesh er endnu ikke opbygget i det låste område. Scan flere sider og prøv igen."
+            return
+        }
+        do {
+            let url = try exportLocation(ext:"obj")
+            try data.write(to:url,options:.atomic)
+            exportedTriangleCount = count
+            exportedMeshURL = url
+            exportMessage = "OBJ gemt: \(count) ARKit-trekanter. Mesh kan have huller."
+        } catch { exportMessage = "OBJ kunne ikke gemmes: \(error.localizedDescription)" }
+    }
+
+    private func exportLocation(ext: String) throws -> URL {
+        let dir = FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
+            .appendingPathComponent("Scan3DLiDARExports", isDirectory:true)
+        try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
+        return dir.appendingPathComponent("Scan3D-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(6)).\(ext)")
+    }
+
+}

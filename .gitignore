@@ -1,0 +1,11 @@
+.DS_Store
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+*.xcuserstate
+Scan3DPhotos/
+Scan3DLiDARExports/
+.env*
+*.p12
+*.pfx
+*.mobileprovision

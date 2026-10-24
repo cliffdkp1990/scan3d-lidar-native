@@ -1,0 +1,27 @@
+name: Scan3DLiDAR
+options:
+  bundleIdPrefix: dk.scan3dstudio
+  deploymentTarget:
+    iOS: '17.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    TARGETED_DEVICE_FAMILY: '1'
+    SWIFT_STRICT_CONCURRENCY: minimal
+    SUPPORTS_MACCATALYST: 'NO'
+targets:
+  Scan3DLiDAR:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dk.scan3dstudio.lidar
+        GENERATE_INFOPLIST_FILE: 'YES'
+        INFOPLIST_KEY_NSCameraUsageDescription: 'Scan3D bruger kamera og LiDAR til at registrere lokal dybde og 3D-geometri.'
+        INFOPLIST_KEY_UIFileSharingEnabled: 'YES'
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: 'YES'
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: 'YES'
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic

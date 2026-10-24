@@ -1,39 +1,27 @@
-name: Scan3D LiDAR - iOS build (rettet)
-
+name: Scan3D - source tests and iOS Simulator build
 on:
   push:
     paths:
-      - '.github/workflows/scan3d-lidar.yml'
       - 'Scan3DLiDAR/**'
+      - '.github/workflows/scan3d-lidar.yml'
+  pull_request:
+    paths:
+      - 'Scan3DLiDAR/**'
+      - '.github/workflows/scan3d-lidar.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
+concurrency:
+  group: scan3d-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   ios-build:
-    name: Test og iOS Simulator-build
+    name: Test and compile actual repository source
     runs-on: macos-15
     timeout-minutes: 35
     steps:
-      - name: Hent repository
-        uses: actions/checkout@v4
-
-      - name: Hent verificeret Scan3D LiDAR v2 med Swift-rettelse
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail --location --retry 3 --max-time 120 \
-            'https://scan3d-lidar-buildkit-cliff.vercel.app/scan3d-lidar-v2-cvflatmap-fix.zip' \
-            --output "$RUNNER_TEMP/scan3d-source.zip"
-          echo 'd4b5b53d16b52a3c1796ba019952d967c3f13b648d02caa3692a9a0ce62a4fa0  '"$RUNNER_TEMP/scan3d-source.zip" | shasum -a 256 --check
-          unzip -q "$RUNNER_TEMP/scan3d-source.zip" -d "$GITHUB_WORKSPACE"
-          test -f Scan3DLiDAR/project.yml
-          test -f Scan3DLiDAR/Sources/ScanEngine.swift
-          grep -Fq 'frame.smoothedSceneDepth.flatMap { Self.middleDepth($0.depthMap) }' Scan3DLiDAR/Sources/ScanEngine.swift
-          echo 'Rettet LiDAR-kildekode hentet, verifikationssum og Swift-rettelse bekræftet.'
-
-      - name: Swift tests - mission og foto
+      - uses: actions/checkout@v4
+      - name: Test mission, current photo frame and exports
         shell: bash
         run: |
           set -euo pipefail
@@ -42,47 +30,30 @@ jobs:
           "$RUNNER_TEMP/mission-tests"
           swiftc Sources/MissionGeometry.swift Tests/capture/main.swift -o "$RUNNER_TEMP/capture-tests"
           "$RUNNER_TEMP/capture-tests"
-
-      - name: Swift tests - PLY og OBJ eksport
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd Scan3DLiDAR
           swiftc Sources/GeometryExport.swift Tests/export/main.swift -o "$RUNNER_TEMP/export-tests"
           "$RUNNER_TEMP/export-tests"
-
-      - name: Installer XcodeGen efter behov
+      - name: Prepare Xcode project
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -version
-          xcrun --sdk iphonesimulator --show-sdk-version
           if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
-          xcodegen --version
-
-      - name: Generer Xcode-projekt
-        shell: bash
-        run: |
-          set -euo pipefail
           cd Scan3DLiDAR
           xcodegen generate
-
-      - name: Kompiler til iOS Simulator uden signering
+      - name: Compile unsigned iOS Simulator app
         shell: bash
         run: |
           set -o pipefail
           xcodebuild -project Scan3DLiDAR/Scan3DLiDAR.xcodeproj \
-            -scheme Scan3DLiDAR \
-            -configuration Debug \
+            -scheme Scan3DLiDAR -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/Scan3DBuild" \
-            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/scan3d-ios-build.log"
-
-      - name: Gem Xcode-buildrapport
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/scan3d-build.log"
+      - name: Save compiler report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scan3d-build-rapport
-          path: ${{ runner.temp }}/scan3d-ios-build.log
+          name: scan3d-source-build-report
+          path: ${{ runner.temp }}/scan3d-build.log
           if-no-files-found: ignore
           retention-days: 7
