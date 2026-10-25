@@ -222,6 +222,30 @@ final class CaptureStudioUITests:XCTestCase {
         reveal(app.buttons["capture-photo"],in:app)
         assertWithinWidth(app.buttons["capture-photo"],in:app)
         screenshot("camera-studio-large-text-controls-SYNTHETIC")
+        // A visual review found scrolled XXXL text behind the system status bar.
+        // Inspect compositor pixels in its empty middle, away from the clock and radio icons.
+        let image=XCUIScreen.main.screenshot().image
+        let format=UIGraphicsImageRendererFormat();format.scale=1;format.preferredRange = .standard
+        let normalized=UIGraphicsImageRenderer(size:image.size,format:format).image { _ in
+            image.draw(in:CGRect(origin:.zero,size:image.size))
+        }
+        let full=try XCTUnwrap(normalized.cgImage)
+        let screen=app.windows.firstMatch.frame,scroll=app.scrollViews["studio-scroll"].frame
+        let bandHeight=min(CGFloat(52),scroll.minY-screen.minY)
+        XCTAssertGreaterThan(bandHeight,20,"The camera scroll area respects the top system safe area")
+        let scale=CGFloat(full.width)/screen.width
+        let region=try XCTUnwrap(full.cropping(to:CGRect(x:screen.width*0.35*scale,y:12*scale,
+            width:screen.width*0.30*scale,height:(bandHeight-12)*scale).integral))
+        var rgba=[UInt8](repeating:0,count:40*16*4)
+        let sampled=rgba.withUnsafeMutableBytes { bytes->Bool in
+            guard let context=CGContext(data:bytes.baseAddress,width:40,height:16,bitsPerComponent:8,bytesPerRow:40*4,
+                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            context.draw(region,in:CGRect(x:0,y:0,width:40,height:16));return true
+        }
+        XCTAssertTrue(sampled)
+        let brightPixels=stride(from:0,to:rgba.count,by:4).filter { rgba[$0]>160 && rgba[$0+1]>160 && rgba[$0+2]>160 }.count
+        print("LARGE_TEXT_STATUS_BAR unexpected bright pixels=\(brightPixels)")
+        XCTAssertLessThan(brightPixels,4,"Scrolled content must not paint into the empty center of the status bar")
         app.terminate()
         let normal=launch()
         XCUIDevice.shared.orientation = .landscapeLeft

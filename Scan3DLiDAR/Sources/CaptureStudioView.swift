@@ -55,6 +55,8 @@ struct CaptureStudioView: View {
             }.frame(width:max(1,size.width-32)).padding(16).padding(.bottom,22)
         }
         .frame(width:size.width,height:size.height)
+        // Keep scrolled accessibility text out of the system status/home-indicator areas.
+        .clipped()
         .accessibilityIdentifier("studio-scroll")
         .background(Studio.ink.ignoresSafeArea()).tint(Studio.mint)
     }
