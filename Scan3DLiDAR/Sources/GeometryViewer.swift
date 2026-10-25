@@ -40,6 +40,9 @@ struct StoredGeometryViewer: View {
     @State private var renderFailure: String?
     @State private var camera = GeometryCamera()
     @State private var lightBackground = false
+    // A fresh RealityKit surface is necessary when the render pass changes
+    // appearance or an in-flight gesture must be discarded on reset.
+    @State private var renderGeneration = 0
     private var cameraAccessibilityValue:String {
         String(format:"Visningszoom %.1f gange. Drejning %.0f grader. Hældning %.0f grader.",
             4.5/camera.distance,camera.yaw*180 / .pi,camera.pitch*180 / .pi)
@@ -56,7 +59,9 @@ struct StoredGeometryViewer: View {
                     #endif
                     ZStack {
                         GeometryViewport(prepared: prepared, camera: $camera, lightBackground: lightBackground,
-                            onFailure: { renderFailure = $0 }).accessibilityHidden(true)
+                            onFailure: { renderFailure = $0 })
+                            .id("\(lightBackground)-\(renderGeneration)")
+                            .accessibilityHidden(true)
                     }
                         .frame(height: 340)
                         .accessibilityElement(children:.ignore)
@@ -79,7 +84,10 @@ struct StoredGeometryViewer: View {
                             .accessibilityLabel("Zoom ind")
                         Button { camera.zoom(by: 1 / 1.2) } label: { Image(systemName: "minus.magnifyingglass") }
                             .accessibilityLabel("Zoom ud")
-                        Button { camera = GeometryCamera() } label: { Image(systemName: "arrow.counterclockwise") }
+                        Button {
+                            camera = GeometryCamera()
+                            renderGeneration += 1
+                        } label: { Image(systemName: "arrow.counterclockwise") }
                             .accessibilityLabel("Nulstil 3D-visning")
                     }.buttonStyle(.bordered).controlSize(.large)
                     Text("Træk for at dreje. Knib for at zoome. Knapperne kan også bruges med VoiceOver.")
@@ -129,7 +137,9 @@ struct StoredGeometryViewer: View {
         .accessibilityIdentifier("geometry-scroll")
         .navigationTitle("Din scanning i 3D").navigationBarTitleDisplayMode(.inline)
         .task(id: file.sha256) {
-            prepared = nil; failure = nil; renderFailure = nil; camera = GeometryCamera()
+            prepared = nil; failure = nil; renderFailure = nil
+            camera = GeometryCamera()
+            renderGeneration += 1
             let storedFile = file, storedProjectID = projectID, projectStore = store
             let loading = Task.detached(priority: .userInitiated) { () throws -> PreparedGeometry in
                 guard storedFile.bytes <= GeometryPreview.maxBytes else { throw GeometryPreviewError.tooLarge }
