@@ -41,7 +41,10 @@ struct CaptureStudioView: View {
                     layout {
                         cameraStage.frame(width:wide ? (contentWidth-20)*0.48 : contentWidth,
                             height:wide ? max(260,min(400,size.height-110)) : max(280,min(520,size.height*0.5)))
-                        VStack(spacing:18) { guidance; captureDock; quality; coverage }.frame(maxWidth:.infinity)
+                        VStack(spacing:18) {
+                            if typeSize.isAccessibilitySize { accessibleCameraFacts }
+                            guidance; captureDock; quality; coverage
+                        }.frame(maxWidth:.infinity)
                     }
                     options
                 } else {
@@ -81,7 +84,7 @@ struct CaptureStudioView: View {
                 LinearGradient(colors:[.black.opacity(0.5),.clear,.clear,.black.opacity(0.6)],startPoint:.top,endPoint:.bottom)
                     .allowsHitTesting(false)
                 focusOverlay(size:cameraSize.size)
-                VStack {
+                if !typeSize.isAccessibilitySize { VStack {
                     HStack(alignment:.top) {
                         Label(engine.isStudioFixture ? "SIMULATOR" : engine.running ? "LIVE" : "PAUSE",systemImage:"circle.fill")
                             .font(.caption.weight(.bold)).foregroundStyle(engine.trackingNormal ? Studio.mint : .orange)
@@ -104,7 +107,7 @@ struct CaptureStudioView: View {
                                 .font(.caption.weight(.medium)).fixedSize(horizontal:false,vertical:true)
                         }.padding(12).background(.ultraThinMaterial,in:Capsule())
                     }
-                }.padding(16)
+                }.padding(16) }
             }
             .clipShape(RoundedRectangle(cornerRadius:30,style:.continuous))
             .overlay(RoundedRectangle(cornerRadius:30).strokeBorder(.white.opacity(0.13)))
@@ -112,6 +115,24 @@ struct CaptureStudioView: View {
         .accessibilityElement(children:.contain)
         .accessibilityLabel("Kameravisning")
         .accessibilityIdentifier("studio-camera")
+    }
+
+    /// At large text sizes camera facts leave the image; they may grow and scroll normally.
+    private var accessibleCameraFacts:some View {
+        VStack(alignment:.leading,spacing:12) {
+            Text(engine.isStudioFixture ? "SIMULATOR" : engine.running ? "LIVE" : "PAUSE")
+                .font(.headline).foregroundStyle(Studio.mint).fixedSize(horizontal:false,vertical:true)
+            Text("Afstand: \(engine.distanceText)").font(.body.monospacedDigit()).fixedSize(horizontal:false,vertical:true)
+                .accessibilityIdentifier("studio-distance")
+            Text(engine.highResolutionSupported && engine.preferHighResolution ? "HQ-foto" : "Foto").font(.body)
+            if engine.isStudioFixture {
+                Text("TESTMOTIV · INGEN KAMERA ELLER LIDAR").font(.caption.bold()).fixedSize(horizontal:false,vertical:true)
+                    .accessibilityIdentifier("studio-fixture-label")
+            } else {
+                Text(engine.missionTargetLocked ? "Målet følger AR-koordinaterne" : "Centrér genstanden i søgeren")
+                    .font(.body).fixedSize(horizontal:false,vertical:true)
+            }
+        }.frame(maxWidth:.infinity,alignment:.leading)
     }
 
     private func focusOverlay(size:CGSize)->some View {
@@ -160,24 +181,28 @@ struct CaptureStudioView: View {
                     .buttonStyle(.borderedProminent).foregroundStyle(Studio.ink)
                     .disabled(!engine.running || engine.savingPhoto || engine.videoBusy)
             } else {
-                HStack(spacing:24) {
-                    Button(action:onLibrary) { VStack(spacing:6) { Image(systemName:"photo.stack").font(.title2);Text("Bibliotek").font(.caption) }.frame(minWidth:64,minHeight:64) }
-                    Spacer(minLength:0)
+                let dockLayout=typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing:20)) : AnyLayout(HStackLayout(spacing:24))
+                dockLayout {
+                    Button(action:onLibrary) {
+                        VStack(spacing:6) { Image(systemName:"photo.stack").font(.system(size:24));Text("Bibliotek").font(.caption).fixedSize(horizontal:false,vertical:true) }
+                            .frame(minWidth:64,minHeight:64)
+                    }
+                    if !typeSize.isAccessibilitySize { Spacer(minLength:0) }
                     Button { engine.captureCurrentFrame() } label: {
                         ZStack {
                             Circle().stroke(Studio.mint.opacity(0.35),lineWidth:3).frame(width:80,height:80)
                             Circle().fill(engine.missionReady ? Studio.mint : .white.opacity(0.18)).frame(width:66,height:66)
                             if engine.savingPhoto { ProgressView().tint(.white) }
-                            else { Image(systemName:"camera.fill").font(.title2).foregroundStyle(engine.missionReady ? Studio.ink : .white.opacity(0.55)) }
+                            else { Image(systemName:"camera.fill").font(.system(size:24)).foregroundStyle(engine.missionReady ? Studio.ink : .white.opacity(0.55)) }
                         }
                     }.disabled(!engine.missionReady || engine.savingPhoto || engine.isStudioFixture)
                         .accessibilityLabel(engine.retakeSlotIndex == nil ? "Tag foto nu" : "Tag foto om")
                         .accessibilityIdentifier("capture-photo")
-                    Spacer(minLength:0)
+                    if !typeSize.isAccessibilitySize { Spacer(minLength:0) }
                     Button {
                         if engine.videoState == .recording { engine.stopVideo() } else { engine.startVideo() }
                     } label: {
-                        VStack(spacing:6) { Image(systemName:engine.videoState == .recording ? "stop.circle.fill" : "video").font(.title2);Text(engine.videoState == .recording ? "Stop" : "Video").font(.caption) }.frame(minWidth:64,minHeight:64)
+                        VStack(spacing:6) { Image(systemName:engine.videoState == .recording ? "stop.circle.fill" : "video").font(.system(size:24));Text(engine.videoState == .recording ? "Stop" : "Video").font(.caption).fixedSize(horizontal:false,vertical:true) }.frame(minWidth:64,minHeight:64)
                     }.disabled(engine.videoState == .preparing || engine.videoState == .finishing || !engine.running || engine.isStudioFixture)
                         .tint(engine.videoState == .recording ? .red : Studio.mint)
                         .accessibilityLabel(engine.videoState == .recording ? "Stop og gem video" : "Start video")
