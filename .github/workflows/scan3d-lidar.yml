@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/scan3d_preflight.py
-          python3 -m unittest discover -s scripts -p 'test_scan3d_ci_report.py' -v
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Select Xcode 26.6 and prepare Simulator
         id: prepare_environment
         shell: bash
