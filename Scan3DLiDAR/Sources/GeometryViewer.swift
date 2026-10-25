@@ -126,6 +126,7 @@ struct StoredGeometryViewer: View {
                 }
             }.padding()
         }
+        .accessibilityIdentifier("geometry-scroll")
         .navigationTitle("Din scanning i 3D").navigationBarTitleDisplayMode(.inline)
         .task(id: file.sha256) {
             prepared = nil; failure = nil; renderFailure = nil; camera = GeometryCamera()
