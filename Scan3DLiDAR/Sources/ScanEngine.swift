@@ -24,7 +24,30 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     @Published var exportedMeshURL: URL?
     @Published var exportedTriangleCount = 0
     @Published var exportMessage = "Tag billeder fra flere vinkler for at opbygge en LiDAR-punktsky."
-    @Published var showWireframe = true
+    @Published var showWireframe = false
+    @Published private(set) var photoCondition: PhotoCondition = .unavailable
+    @Published private(set) var depthSupport = "Venter på dybde"
+    @Published private(set) var liveResolution = "—"
+    @Published private(set) var highResolutionSupported = false
+    @Published var preferHighResolution = true
+    @Published var analyzeSubject = false
+    @Published private(set) var photoSourceDescription = "Kamera ikke startet"
+    @Published private(set) var targetScreenPoint: CGPoint?
+    @Published private(set) var targetOutsideView = false
+    @Published private(set) var trackingNormal = false
+    @Published private(set) var depthReliable = false
+    private var viewportSize = CGSize.zero
+    private var interfaceOrientation: UIInterfaceOrientation = .portrait
+    private var qualityTimestamp: TimeInterval?
+    private var lastQualityTime: TimeInterval = -1
+    private var qualityBusy = false
+    private var qualityGeneration = UUID()
+    private var photoLifecycle = PhotoCaptureLifecycle()
+    private var pendingHighResolution: UUID?
+    private var previousForward: ScanPoint?
+    private var previousUp: ScanPoint?
+    private var lastProjectionTime: TimeInterval = -1
+    private let qualityQueue = DispatchQueue(label: "dk.scan3d.image-quality", qos: .userInitiated)
     private let cloud = PointCollector()
     private var depthPointsBySlot: [Int: [CloudVertex]] = [:]
     var hasMeshSupport: Bool { ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) }
@@ -46,7 +69,14 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     private var pendingAutomaticVideoStart = false
     private var videoBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     var videoBusy: Bool { videoState != .idle }
-    let projectStore = ProjectStore()
+    let projectStore:ProjectStore = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SCAN3D_STUDIO_FIXTURE"]=="1" {
+            return ProjectStore(root:FileManager.default.temporaryDirectory.appendingPathComponent("Scan3D-Isolated-UI-Fixtures",isDirectory:true))
+        }
+        #endif
+        return ProjectStore()
+    }()
     private let fileQueue = DispatchQueue(label: "dk.scan3d.project-files", qos: .userInitiated)
     private var automaticCapture = AutomaticCapture()
     private var needsNewCoordinateSpace = false
@@ -79,6 +109,36 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth)
     }
 
+    var isStudioFixture:Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["SCAN3D_STUDIO_FIXTURE"]=="1"
+        #else
+        return false
+        #endif
+    }
+    var cameraAvailable:Bool { Self.supportsLiDAR || isStudioFixture }
+    func prepareStudioFixtureIfNeeded() {
+        #if DEBUG
+        guard isStudioFixture, activeProject == nil else { return }
+        do {
+            let project=try StudioFixtures.project(in:projectStore)
+            activeProject=project; projects=[project]
+            running=true; trackingNormal=true; depthReliable=true
+            missionTargetLocked=true; targetPoint=ScanPoint(x:0,y:0,z:0)
+            capturedSlots=Set(0..<8); savedCount=8
+            missionCoverage=(0..<36).map { $0 < 8 };missionProgress="8/36 vinkler"
+            missionNavigation="Gå roligt til næste side og bevar afstanden."
+            distanceText="≈ 0,72 m"; depthSupport="Dybde 23/25";lidarPointCount=480
+            photoSourceDescription="Simulator — testmotiv";liveResolution="Testdata"
+            trackingText="Position følges";targetScreenPoint=CGPoint(x:0.5,y:0.47)
+            let dark=ProcessInfo.processInfo.environment["SCAN3D_QUALITY_SCENARIO"]=="dark"
+            photoCondition=dark ? .tooDark : .ready
+            missionReady = !dark
+            guidanceText=dark ? PhotoCondition.tooDark.guidance : "God vinkel. Hold telefonen roligt."
+        } catch { libraryMessage="Simulatorens testprojekt kunne ikke klargøres: \(error.localizedDescription)" }
+        #endif
+    }
+
     func start(using session: ARSession) {
         guard !savingPhoto, !videoBusy else { return }
         guard Self.supportsLiDAR else {
@@ -95,6 +155,12 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         if !running && previousTimestamp == nil { resetMission() }
         let config = ARWorldTrackingConfiguration()
         config.worldAlignment = .gravity
+        config.isAutoFocusEnabled = true
+        if let format=ARWorldTrackingConfiguration.recommendedVideoFormatForHighResolutionFrameCapturing {
+            config.videoFormat=format
+            highResolutionSupported=true
+        } else { highResolutionSupported=false }
+        photoSourceDescription=highResolutionSupported && preferHighResolution ? "Højopløsningsfoto" : "Kameraframe"
         config.planeDetection = [.horizontal, .vertical]
         config.frameSemantics.insert(.smoothedSceneDepth)
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
@@ -106,6 +172,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func stop() {
+        invalidateQuality()
         stopVideo(reason: "cameraPaused")
         session?.pause()
         self.running = false
@@ -146,6 +213,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
 
     func resetMission() {
         guard !savingPhoto, !videoBusy else { return }
+        invalidateQuality()
         activeProject = nil
         automaticCapture.reset()
         savedCount = 0
@@ -189,14 +257,17 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             guidanceText = "Vent på stabil sporing, før du låser målet."
             return
         }
-        guard let depthBuffer = frame.smoothedSceneDepth?.depthMap,
-              let depth = Self.middleDepth(depthBuffer), depth >= 0.3, depth <= 2.2 else {
-            guidanceText = "Peg på en synlig overflade mellem ca. 30 cm og 2,2 m."
+        guard let estimate=LiDARFrameQuality.center(frame), estimate.meters >= 0.3, estimate.meters <= 2.2 else {
+            guidanceText = "Centrér en tydelig overflade mellem 30 cm og 2,2 m. Vent på sikker dybde."
             return
         }
+        let depth=estimate.meters
         let matrix = frame.camera.transform
-        let t = matrix.columns.3
-        let forward = matrix.columns.2
+        let intrinsics=frame.camera.intrinsics
+        let width=Float(CVPixelBufferGetWidth(frame.capturedImage)), height=Float(CVPixelBufferGetHeight(frame.capturedImage))
+        guard let cameraTarget=DepthQuality.unproject(x:width/2,y:height/2,depth:depth,
+            fx:intrinsics[0,0],fy:intrinsics[1,1],cx:intrinsics[2,0],cy:intrinsics[2,1]) else { return }
+        let world=simd_mul(matrix,SIMD4<Float>(cameraTarget.x,cameraTarget.y,cameraTarget.z,1))
         // Commit the new project before replacing any in-memory target/state.
         do { activeProject = try projectStore.create() }
         catch {
@@ -204,9 +275,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             return
         }
         automaticCapture.reset()
-        targetPoint = ScanPoint(x: Double(t.x-forward.x*depth),
-                                y: Double(t.y-forward.y*depth),
-                                z: Double(t.z-forward.z*depth))
+        targetPoint = ScanPoint(x:Double(world.x),y:Double(world.y),z:Double(world.z))
         cloud.clear()
         depthPointsBySlot.removeAll()
         lidarPointCount = 0
@@ -393,6 +462,54 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
+    func updateViewport(size: CGSize, orientation: UIInterfaceOrientation) {
+        guard size.width > 0, size.height > 0 else { return }
+        viewportSize=size
+        interfaceOrientation=orientation
+    }
+
+    private func invalidateQuality() {
+        qualityGeneration=UUID()
+        qualityTimestamp=nil
+        lastQualityTime = -1
+        photoCondition = .unavailable
+        previousForward=nil; previousUp=nil
+        depthSupport="Venter på dybde"
+        targetScreenPoint=nil
+        trackingNormal=false; depthReliable=false
+        lastProjectionTime = -1
+    }
+
+    private func updateImageQuality(_ frame: ARFrame) {
+        guard !qualityBusy, !captureSuspended, frame.timestamp-lastQualityTime >= 0.25 else { return }
+        qualityBusy=true; lastQualityTime=frame.timestamp
+        let buffer=frame.capturedImage, timestamp=frame.timestamp, generation=qualityGeneration
+        qualityQueue.async { [weak self] in
+            let measured=CameraImageQuality.analyze(buffer)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.qualityBusy=false
+                guard self.qualityGeneration==generation, self.running, !self.captureSuspended else { return }
+                self.qualityTimestamp=timestamp
+                self.photoCondition=measured?.condition ?? .unavailable
+            }
+        }
+    }
+
+    private func updateTargetProjection(_ frame: ARFrame, forward: ScanPoint, camera: ScanPoint) {
+        guard frame.timestamp-lastProjectionTime >= 0.08 else { return }
+        lastProjectionTime=frame.timestamp
+        guard let target=targetPoint, viewportSize.width > 0, viewportSize.height > 0,
+              forward.dot(target-camera) > 0 else { targetScreenPoint=nil; return }
+        let point=frame.camera.projectPoint(SIMD3<Float>(Float(target.x),Float(target.y),Float(target.z)),
+            orientation:interfaceOrientation,viewportSize:viewportSize)
+        guard point.x.isFinite, point.y.isFinite else { targetScreenPoint=nil; return }
+        let normalized=CGPoint(x:point.x/viewportSize.width,y:point.y/viewportSize.height)
+        let outside=normalized.x < 0 || normalized.x > 1 || normalized.y < 0 || normalized.y > 1
+        if targetScreenPoint != normalized { targetScreenPoint=normalized }
+        if targetOutsideView != outside { targetOutsideView=outside }
+    }
+
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         guard Self.supportsLiDAR, running else { return }
         if videoState == .recording {
@@ -402,7 +519,17 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         }
         let t = frame.camera.transform.columns.3
         let position = SIMD3<Float>(t.x, t.y, t.z)
-        let depth = frame.smoothedSceneDepth.flatMap { Self.middleDepth($0.depthMap) }
+        let estimate=LiDARFrameQuality.center(frame)
+        if depthReliable != (estimate != nil) { depthReliable=estimate != nil }
+        let normal:Bool
+        if case .normal=frame.camera.trackingState { normal=true } else { normal=false }
+        if trackingNormal != normal { trackingNormal=normal }
+        let depth=estimate?.meters
+        let support=estimate.map { "Dybde \($0.supportedSamples)/25" } ?? "Usikker dybde"
+        if depthSupport != support { depthSupport=support }
+        let resolution="\(CVPixelBufferGetWidth(frame.capturedImage)) × \(CVPixelBufferGetHeight(frame.capturedImage))"
+        if liveResolution != resolution { liveResolution=resolution }
+        updateImageQuality(frame)
         latestPosition = position
         latestDistance = depth
         let cameraPoint = ScanPoint(x: Double(position.x), y: Double(position.y), z: Double(position.z))
@@ -411,13 +538,18 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                                       y: -Double(forwardColumn.y),
                                       z: -Double(forwardColumn.z))
         let time = frame.timestamp
+        let up=ScanPoint(x:Double(frame.camera.transform.columns.1.x),y:Double(frame.camera.transform.columns.1.y),z:Double(frame.camera.transform.columns.1.z))
         let velocity: Double
+        let angular: Double
         if let last = previousCamera, let lastTime = previousTimestamp, time > lastTime {
             velocity = (cameraPoint-last).length / (time-lastTime)
-        } else { velocity = Double.infinity }
+            angular=max(CaptureMotion.angularRate(from:previousForward ?? lookDirection,to:lookDirection,interval:time-lastTime),
+                CaptureMotion.angularRate(from:previousUp ?? up,to:up,interval:time-lastTime))
+        } else { velocity = Double.infinity; angular = .infinity }
+        previousForward=lookDirection; previousUp=up
         previousCamera = cameraPoint
         previousTimestamp = time
-        let still = velocity < 0.13
+        let still = CaptureMotion.held(linear:velocity,angular:angular)
         if !still { stableSince = nil }
         else if stableSince == nil { stableSince = time }
         let heldSteady = stableSince.map { time-$0 > 0.65 } ?? false
@@ -430,14 +562,20 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                 currentSlotIndex = feedback.slot.index
                 missionCurrentSlot = feedback.slot.label
                 let alreadyCaptured = capturedSlots.contains(feedback.slot.index)
+                let thermal=ProcessInfo.processInfo.thermalState
+                let resourceOK=thermal != .serious && thermal != .critical
+                let imageOK=CaptureMotion.fresh(qualityTime:qualityTimestamp,frameTime:time) && photoCondition.allowsCapture
                 let retakeThisSlot = MissionRetake.canCapture(slot: feedback.slot.index,
-                    covered: capturedSlots, retake: retakeSlotIndex, cameraReady: feedback.ready)
-                missionReady = retakeThisSlot
+                    covered: capturedSlots, retake: retakeSlotIndex, cameraReady: feedback.ready && imageOK && estimate != nil && resourceOK)
+                if missionReady != retakeThisSlot { missionReady=retakeThisSlot }
                 guidanceText = alreadyCaptured && retakeSlotIndex != feedback.slot.index
                     ? "Denne vinkel er allerede dækket. Vælg den grønne position, hvis billedet skal tages om."
                     : feedback.ready && retakeSlotIndex == feedback.slot.index
                         ? "Klar til genfoto: \(feedback.slot.label)."
                         : feedback.instruction
+                if feedback.ready && !imageOK { guidanceText=photoCondition.guidance }
+                else if feedback.ready && estimate == nil { guidanceText="Dybden er usikker. Undgå blanke kanter, og centrér genstanden." }
+                else if !resourceOK { guidanceText="Telefonen er varm. Hold pause, før du tager flere fotos." }
                 if let desired = retakeSlotIndex {
                     let retakeSlot = ScanSlot(ring: desired / 12, sector: desired % 12)
                     let route = MissionRoute.navigateTo(from: feedback.slot, target: retakeSlot)
@@ -457,6 +595,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         } else {
             missionReady = false
         }
+        updateTargetProjection(frame,forward:lookDirection,camera:cameraPoint)
         if automaticCapture.shouldCapture(enabled: automaticPhotos, running: running,
             suspended: captureSuspended, saving: savingPhoto, ready: missionReady,
             slot: currentSlotIndex, covered: capturedSlots, retake: retakeSlotIndex,
@@ -477,41 +616,20 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         }
         // Throttle Vision inference to ~1 frame/s to avoid saturating iPhone CPU/GPU.
         let timestamp = frame.timestamp
-        if timestamp - lastVisionTime > 1.0 && !visionBusy {
+        if analyzeSubject && timestamp - lastVisionTime > 1.0 && !visionBusy {
             lastVisionTime = timestamp
             visionBusy = true
             let image = frame.capturedImage
+            let orientation=CameraImageQuality.orientation(interfaceOrientation)
             visionQueue.async { [weak self] in
-                self?.analyze(image: image)
+                self?.analyze(image: image, orientation:orientation)
                 DispatchQueue.main.async { self?.visionBusy = false }
             }
         }
     }
 
-    /// Center sample, *not* a depth reading of a segmented object or calibrated measurement.
-    private static func middleDepth(_ buffer: CVPixelBuffer) -> Float? {
-        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_DepthFloat32 else { return nil }
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        guard let ptr = CVPixelBufferGetBaseAddress(buffer) else { return nil }
-        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
-        let row = CVPixelBufferGetBytesPerRow(buffer) / MemoryLayout<Float32>.size
-        let floats = ptr.assumingMemoryBound(to: Float32.self)
-        let cx = width / 2, cy = height / 2
-        var values: [Float] = []
-        for y in max(0,cy-2)...min(height-1,cy+2) {
-            for x in max(0,cx-2)...min(width-1,cx+2) {
-                let v = floats[y*row+x]
-                if v.isFinite && v > 0.05 && v < 10 { values.append(v) }
-            }
-        }
-        if values.isEmpty { return nil }
-        values.sort()
-        return values[values.count/2]
-    }
-
-    private func analyze(image: CVPixelBuffer) {
-        let handler = VNImageRequestHandler(cvPixelBuffer: image, orientation: .right, options: [:])
+    private func analyze(image: CVPixelBuffer, orientation:CGImagePropertyOrientation) {
+        let handler = VNImageRequestHandler(cvPixelBuffer: image, orientation: orientation, options: [:])
         let foreground = VNGenerateForegroundInstanceMaskRequest()
         let labels = VNClassifyImageRequest()
         do {
@@ -566,87 +684,136 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                       width: CGFloat(maxX-minX)/CGFloat(w), height: CGFloat(maxY-minY)/CGFloat(h))
     }
 
-    /// Save a camera frame and AR position locally; no network request or account required.
+    /// One asynchronous request, one exact ARFrame, one project/slot token.
     func captureCurrentFrame() {
-        guard !savingPhoto, !captureSuspended, running, missionTargetLocked, missionReady,
-              let project = activeProject,
-              let frame = session?.currentFrame, let target = targetPoint else {
-            guidanceText = "Vent på grønt lys og låst genstand, før du tager foto."
-            return
-        }
-        // The camera may move between the last delegate callback and a tap. Re-check
-        // the actual frame to prevent mislabeled positions or accidental retakes.
-        let tNow = frame.camera.transform.columns.3
-        let fNow = frame.camera.transform.columns.2
-        let cameraNow = ScanPoint(x:Double(tNow.x), y:Double(tNow.y), z:Double(tNow.z))
-        let forwardNow = ScanPoint(x:-Double(fNow.x), y:-Double(fNow.y), z:-Double(fNow.z))
-        let trackingGood: Bool
-        if case .normal = frame.camera.trackingState { trackingGood = true } else { trackingGood = false }
-        let captureFresh = previousTimestamp.map {
-            frame.timestamp >= $0 && frame.timestamp-$0 < 0.30
-        } ?? false
-        let heldSteady = stableSince.map { frame.timestamp-$0 > 0.65 } ?? false
-        guard captureFresh, let confirmed = CaptureValidation.approve(
-            camera:cameraNow, forward:forwardNow, target:target,
-            trackingGood:trackingGood, heldSteady:heldSteady,
-            expectedSlot:currentSlotIndex, covered:capturedSlots, retake:retakeSlotIndex) else {
-            missionReady = false
-            guidanceText = "Telefonen flyttede sig, eller sporingen blev usikker. Hold stille og prøv igen."
-            return
-        }
-        let slotKey = confirmed.slot.index
-        let replacement = retakeSlotIndex == slotKey && capturedSlots.contains(slotKey)
-        let metadata: [String: Any] = [
-                "project_id": project.id.uuidString, "coordinate_space_id": project.coordinateSpaceID.uuidString,
-                "replaces_previous_capture": replacement, "timestamp": Date().timeIntervalSince1970,
-                "arkit_frame_timestamp": frame.timestamp,
-                "arkit_session_position_m": [tNow.x,tNow.y,tNow.z],
-                "center_depth_m": frame.smoothedSceneDepth.flatMap { Self.middleDepth($0.depthMap) } as Any? ?? NSNull(),
-                "mission_slot_index": slotKey,
-                "mission_ring": slotKey / 12,
-                "mission_sector": slotKey % 12,
-                "locked_target_arkit_world_m": targetPoint.map { [$0.x, $0.y, $0.z] } ?? [],
-                "mission_alignment": "approximate, session-relative; not LiDAR-verified object identity",
-                "warning": "Relative ARKit coordinates. Not a calibrated object measurement."
-        ]
-        let roi = CloudVertex(x: Float(target.x), y: Float(target.y), z: Float(target.z))
-        let perSlotCloud = PointCollector(resolution: cloud.resolution, maxPoints: 10_000)
-        let newPoints = LiDARDepthSampler.sample(frame: frame, into: perSlotCloud, target: roi)
-        let samples = perSlotCloud.snapshot()
-        var pendingDepth = depthPointsBySlot
-        pendingDepth[slotKey] = samples
-        let pendingCloud = PointCollector(resolution: cloud.resolution)
-        for position in pendingDepth.keys.sorted() {
-            for point in pendingDepth[position] ?? [] { pendingCloud.add(point, target: roi) }
-        }
-        let points = pendingCloud.snapshot()
-        savingPhoto = true
-        missionReady = false
-        fileQueue.async { [weak self] in
-            guard let self = self else { return }
-            do {
-                let image = CIImage(cvPixelBuffer: frame.capturedImage)
-                guard let jpeg = self.ciContext.jpegRepresentation(of: image,
-                    colorSpace: CGColorSpaceCreateDeviceRGB(), options: [:]) else {
-                    throw ProjectStoreError.emptyFile
-                }
-                let saved = try self.projectStore.saveCapture(projectID: project.id, slot: slotKey,
-                    jpeg: jpeg, metadata: JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted]),
-                    thumbnail: Self.thumbnail(jpeg), pointCloud: GeometryExport.ply(points: points))
-                guard let capture = saved.currentCaptures.first(where: { $0.slot == slotKey }) else {
-                    throw ProjectStoreError.invalidManifest
-                }
-                let url = try self.projectStore.verifiedURL(capture.photo, projectID: project.id)
-                let cloudURL = try self.projectStore.verifiedURL(capture.pointCloud, projectID: project.id)
+        guard !savingPhoto, !captureSuspended, running, missionReady, let project=activeProject,
+              let slot=currentSlotIndex, let frame=session?.currentFrame,
+              let token=photoLifecycle.begin(projectID:project.id,slot:slot,generation:qualityGeneration) else { return }
+        savingPhoto=true
+        missionReady=false
+        if preferHighResolution && highResolutionSupported, let cameraSession=session {
+            pendingHighResolution=token.id
+            cameraSession.captureHighResolutionFrame { [weak self] captured,error in
                 DispatchQueue.main.async {
-                    self.didSaveCapture(project: saved, slot: slotKey, replacement: replacement,
-                        samples: samples, points: points, newPoints: newPoints, photoURL: url, cloudURL: cloudURL)
+                    guard let self, self.photoLifecycle.active==token else { return }
+                    self.pendingHighResolution=nil
+                    guard error == nil, let captured else {
+                        self.photoFailed(token,message:"Højopløsningsfoto kunne ikke tages. Prøv igen eller slå højopløsning fra.",stopAutomatic:true)
+                        return
+                    }
+                    self.processPhoto(captured,project:project,token:token,source:"arkitHighResolution")
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline:.now()+8) { [weak self] in
+                guard let self, self.pendingHighResolution==token.id else { return }
+                self.photoFailed(token,message:"Kameraet svarede ikke i tide. Prøv igen; ingen fotoposition blev overskrevet.",stopAutomatic:true)
+            }
+        } else { processPhoto(frame,project:project,token:token,source:"arkitStreamFrame") }
+    }
+
+    private func photoFailed(_ token:PhotoRequestToken,message:String,stopAutomatic:Bool) {
+        guard photoLifecycle.finish(token) else { return }
+        pendingHighResolution=nil
+        savingPhoto=false
+        missionReady=false
+        if stopAutomatic { automaticPhotos=false }
+        guidanceText=message
+    }
+
+    private func processPhoto(_ frame:ARFrame,project:ScanProject,token:PhotoRequestToken,source:String) {
+        guard photoLifecycle.active==token, token.generation==qualityGeneration,
+              activeProject?.id==token.projectID, running, !captureSuspended,
+              let target=targetPoint else {
+            photoFailed(token,message:"Optagelsen blev afbrudt. Gemte fotos er bevaret.",stopAutomatic:false)
+            return
+        }
+        let tNow=frame.camera.transform.columns.3, fNow=frame.camera.transform.columns.2
+        let cameraNow=ScanPoint(x:Double(tNow.x),y:Double(tNow.y),z:Double(tNow.z))
+        let forwardNow=ScanPoint(x:-Double(fNow.x),y:-Double(fNow.y),z:-Double(fNow.z))
+        let trackingGood:Bool
+        if case .normal=frame.camera.trackingState { trackingGood=true } else { trackingGood=false }
+        // High-res frames arrive out-of-band; their timestamp may precede the most recent delegate callback.
+        let fresh=previousTimestamp.map { $0.isFinite && frame.timestamp.isFinite && abs(frame.timestamp-$0)<0.45 } ?? false
+        let held=stableSince.map { frame.timestamp-$0 > 0.65 } ?? false
+        guard fresh, let confirmed=CaptureValidation.approve(camera:cameraNow,forward:forwardNow,target:target,
+            trackingGood:trackingGood,heldSteady:held,expectedSlot:token.slot,covered:capturedSlots,retake:retakeSlotIndex),
+            let center=LiDARFrameQuality.center(frame) else {
+            photoFailed(token,message:"Kamera, vinkel eller dybde ændrede sig. Hold stille og prøv igen.",stopAutomatic:false)
+            return
+        }
+        let slotKey=confirmed.slot.index
+        let replacement=retakeSlotIndex==slotKey && capturedSlots.contains(slotKey)
+        let intrinsics=frame.camera.intrinsics
+        let metadata:[String:Any]=[
+            "project_id":project.id.uuidString,"coordinate_space_id":project.coordinateSpaceID.uuidString,
+            "replaces_previous_capture":replacement,"timestamp":Date().timeIntervalSince1970,
+            "arkit_frame_timestamp":frame.timestamp,"photo_source":source,
+            "arkit_session_position_m":[tNow.x,tNow.y,tNow.z],"center_depth_m":center.meters,
+            "depth_supported_samples":center.supportedSamples,"depth_patch_spread_m":center.spread,
+            "depth_confidence_policy":"medium/high confidence; central coherent patch; no generated depth",
+            "mission_slot_index":slotKey,"mission_ring":slotKey/12,"mission_sector":slotKey%12,
+            "locked_target_arkit_world_m":[target.x,target.y,target.z],
+            "camera_intrinsics_columns":[[intrinsics[0,0],intrinsics[0,1],intrinsics[0,2]],[intrinsics[1,0],intrinsics[1,1],intrinsics[1,2]],[intrinsics[2,0],intrinsics[2,1],intrinsics[2,2]]],
+            "raw_camera_width":CVPixelBufferGetWidth(frame.capturedImage),"raw_camera_height":CVPixelBufferGetHeight(frame.capturedImage),
+            "exposure_seconds":frame.camera.exposureDuration,
+            "warning":"Approximate ARKit geometry. Density is not measurement accuracy; no object segmentation."
+        ]
+        let roi=CloudVertex(x:Float(target.x),y:Float(target.y),z:Float(target.z))
+        let depthSnapshot=depthPointsBySlot
+        let resolution=cloud.resolution
+        let orientation=CameraImageQuality.orientation(interfaceOrientation)
+        fileQueue.async { [weak self] in
+            guard let self else { return }
+            let perSlotCloud=PointCollector(resolution:resolution,maxPoints:12_000)
+            let newPoints=LiDARDepthSampler.sample(frame:frame,into:perSlotCloud,target:roi)
+            guard newPoints > 0 else {
+                DispatchQueue.main.async {
+                    self.photoFailed(token,message:"Ingen støttede LiDAR-punkter i området. Centrér genstanden og prøv igen.",stopAutomatic:false)
+                }
+                return
+            }
+            let samples=perSlotCloud.snapshot()
+            var pendingDepth=depthSnapshot
+            pendingDepth[slotKey]=samples
+            let pendingCloud=PointCollector(resolution:resolution)
+            for position in pendingDepth.keys.sorted() {
+                for point in pendingDepth[position] ?? [] { pendingCloud.add(point,target:roi) }
+            }
+            let points=pendingCloud.snapshot()
+            let measured=CameraImageQuality.analyze(frame.capturedImage)
+            guard let measured, measured.condition.allowsCapture else {
+                DispatchQueue.main.async {
+                    guard self.photoLifecycle.active==token else { return }
+                    self.photoCondition=measured?.condition ?? .unavailable
+                    self.photoFailed(token,message:measured?.condition.guidance ?? "Billedet kunne ikke kontrolleres.",stopAutomatic:false)
+                }
+                return
+            }
+            do {
+                let encoded=try autoreleasepool { try CameraImageQuality.jpeg(frame.capturedImage,orientation:orientation,context:self.ciContext) }
+                var info=metadata
+                info["jpeg_width"]=encoded.width; info["jpeg_height"]=encoded.height
+                info["jpeg_quality"]=0.95; info["jpeg_pixels_oriented"]=true
+                info["source_orientation_exif"]=orientation.rawValue
+                info["luma_mean"]=measured.mean; info["luma_edge_energy"]=measured.edgeEnergy
+                info["photo_quality_condition"]=measured.condition.rawValue
+                info["quality_warning"]="Central luma/detail heuristic, not calibrated focus or reconstruction-quality verification."
+                info["point_voxel_spacing_m"]=self.cloud.resolution
+                let saved=try self.projectStore.saveCapture(projectID:project.id,slot:slotKey,jpeg:encoded.data,
+                    metadata:JSONSerialization.data(withJSONObject:info,options:[.prettyPrinted]),
+                    thumbnail:Self.thumbnail(encoded.data),pointCloud:GeometryExport.ply(points:points))
+                guard let capture=saved.currentCaptures.first(where:{$0.slot==slotKey}) else { throw ProjectStoreError.invalidManifest }
+                let url=try self.projectStore.verifiedURL(capture.photo,projectID:project.id)
+                let cloudURL=try self.projectStore.verifiedURL(capture.pointCloud,projectID:project.id)
+                DispatchQueue.main.async {
+                    guard self.photoLifecycle.finish(token) else { self.refreshLibrary();return }
+                    self.pendingHighResolution=nil
+                    self.didSaveCapture(project:saved,slot:slotKey,replacement:replacement,
+                        samples:samples,points:points,newPoints:newPoints,photoURL:url,cloudURL:cloudURL)
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self.savingPhoto = false
-                    self.automaticPhotos = false
-                    self.guidanceText = "Foto blev ikke registreret: \(error.localizedDescription). Automatisk foto er sat på pause."
+                    self.photoFailed(token,message:"Foto blev ikke registreret: \(error.localizedDescription). Automatisk foto er sat på pause.",stopAutomatic:true)
                 }
             }
         }

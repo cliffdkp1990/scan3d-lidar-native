@@ -35,6 +35,8 @@ jobs:
           "$RUNNER_TEMP/export-tests"
           swiftc Sources/GeometryExport.swift Sources/GeometryPreview.swift Tests/geometry-preview/main.swift -o "$RUNNER_TEMP/geometry-preview-tests"
           "$RUNNER_TEMP/geometry-preview-tests"
+          swiftc Sources/GeometryExport.swift Sources/MissionGeometry.swift Sources/CaptureQuality.swift Sources/LumaBufferSampler.swift Tests/quality/main.swift -o "$RUNNER_TEMP/capture-quality-tests"
+          "$RUNNER_TEMP/capture-quality-tests"
           swiftc Sources/AutomaticCapture.swift Tests/automatic/main.swift -o "$RUNNER_TEMP/automatic-tests"
           "$RUNNER_TEMP/automatic-tests"
           swiftc Sources/ProjectStore.swift Tests/projects/main.swift -o "$RUNNER_TEMP/project-tests"
@@ -64,5 +66,34 @@ jobs:
         with:
           name: scan3d-source-build-report
           path: ${{ runner.temp }}/scan3d-build.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Run native camera and model-viewer UI tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=[v for vs in json.load(sys.stdin)["devices"].values() for v in vs if "iPhone" in v["name"]]; d.sort(key=lambda v:("iPhone 16 Pro" not in v["name"],v["name"])); print(d[0]["udid"])')
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcodebuild test -project Scan3DLiDAR/Scan3DLiDAR.xcodeproj \
+            -scheme Scan3DLiDAR -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
+            -derivedDataPath "$RUNNER_TEMP/Scan3DBuild" -resultBundlePath "$RUNNER_TEMP/Scan3D-UI.xcresult" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/scan3d-ui.log"
+      - name: Export native screenshots and UI report
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$RUNNER_TEMP/Scan3D-UI.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/Scan3D-UI.xcresult" --output-path "$RUNNER_TEMP/scan3d-ui-attachments"
+          fi
+      - name: Save native UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-native-ui-evidence
+          path: |
+            ${{ runner.temp }}/scan3d-ui.log
+            ${{ runner.temp }}/scan3d-ui-attachments
           if-no-files-found: ignore
           retention-days: 7

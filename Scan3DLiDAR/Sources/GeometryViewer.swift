@@ -118,6 +118,7 @@ private struct GeometryViewport: UIViewRepresentable {
         view.environment.background = .color(lightBackground ? .systemGray6 : .black)
         view.accessibilityLabel = "3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder."
         view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "geometry-viewport"
         let coordinator = context.coordinator
         let anchor = AnchorEntity(world: .zero)
         do {
@@ -160,6 +161,8 @@ private struct GeometryViewport: UIViewRepresentable {
         context.coordinator.owner = self
         context.coordinator.updateCamera()
         view.environment.background = .color(lightBackground ? .systemGray6 : .black)
+        view.accessibilityValue = String(format:"Visningszoom %.1f gange. Drejning %.0f grader. Hældning %.0f grader.",
+            4.5/camera.distance,camera.yaw*180 / .pi,camera.pitch*180 / .pi)
     }
     static func dismantleUIView(_ view: ARView, coordinator: Coordinator) { view.scene.anchors.removeAll() }
 

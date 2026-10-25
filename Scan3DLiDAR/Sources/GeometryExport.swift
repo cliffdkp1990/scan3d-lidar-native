@@ -16,31 +16,37 @@ private struct VoxelIndex: Hashable {
     let x: Int32
     let y: Int32
     let z: Int32
-    init(_ point: CloudVertex, step: Float) {
-        x = Int32((point.x/step).rounded(.down))
-        y = Int32((point.y/step).rounded(.down))
-        z = Int32((point.z/step).rounded(.down))
+    init?(_ point: CloudVertex, step: Float) {
+        let values=[point.x,point.y,point.z].map { (Double($0)/Double(step)).rounded(.down) }
+        guard values.allSatisfy({ $0.isFinite && $0 >= Double(Int32.min) && $0 <= Double(Int32.max) }) else { return nil }
+        x=Int32(values[0]); y=Int32(values[1]); z=Int32(values[2])
     }
 }
 
 /// Bounded, deduplicated set of world-space LiDAR points.
 final class PointCollector {
-    private var pointsByCell: [VoxelIndex: CloudVertex] = [:]
+    private var pointsByCell: [VoxelIndex: (point: CloudVertex, weight: Int)] = [:]
     let resolution: Float
     let maxPoints: Int
-    init(resolution: Float = 0.025, maxPoints: Int = 120_000) {
-        self.resolution = resolution
-        self.maxPoints = maxPoints
+    init(resolution: Float = 0.008, maxPoints: Int = 120_000) {
+        self.resolution = resolution.isFinite && resolution > 0 && resolution <= 1 ? resolution : 0.008
+        self.maxPoints = max(1,min(2_000_000,maxPoints))
     }
     var count: Int { pointsByCell.count }
     func clear() { pointsByCell.removeAll(keepingCapacity: true) }
     func add(_ point: CloudVertex, target: CloudVertex?, radius: Float = 0.7) {
-        guard point.finite, count < maxPoints else { return }
+        guard point.finite else { return }
         if let target, point.distanceSquared(to: target) > radius * radius { return }
-        let key = VoxelIndex(point, step: resolution)
-        if pointsByCell[key] == nil { pointsByCell[key] = point }
+        guard let key = VoxelIndex(point, step: resolution) else { return }
+        if let sample=pointsByCell[key] {
+            let weight=min(8,sample.weight)
+            let n=Float(weight)
+            let averaged=CloudVertex(x:(sample.point.x*n+point.x)/(n+1),
+                y:(sample.point.y*n+point.y)/(n+1),z:(sample.point.z*n+point.z)/(n+1))
+            pointsByCell[key]=(averaged,weight+1)
+        } else if count < maxPoints { pointsByCell[key]=(point,1) }
     }
-    func snapshot() -> [CloudVertex] { Array(pointsByCell.values) }
+    func snapshot() -> [CloudVertex] { pointsByCell.values.map { $0.point } }
 }
 
 /// OBJ and PLY output are local and intentionally omit color / photo textures.
