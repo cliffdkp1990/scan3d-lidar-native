@@ -146,7 +146,9 @@ jobs:
         shell: bash
         run: |
           python3 scripts/scan3d_ci_report.py \
-            --sha "${{ github.sha }}" --run-id "${{ github.run_id }}" \
+            --sha "$(git rev-parse HEAD)" \
+            --head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --event "${{ github.event_name }}" --run-id "${{ github.run_id }}" \
             --log-directory "$RUNNER_TEMP" --output "$RUNNER_TEMP/scan3d-ci-status.json" \
             --source "${{ steps.source_tests.outcome }}" \
             --debug "${{ steps.debug_build.outcome }}" \
