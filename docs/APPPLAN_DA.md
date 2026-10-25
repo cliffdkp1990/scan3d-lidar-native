@@ -1,6 +1,6 @@
 # Scan3D — appplan med automatisk foto, video og 3D-objekter
 
-24. oktober 2026. Plan og prioriteret byggegrundlag. Udgangspunktet er brugerens genfundne **Scan3D LiDAR – Pro Max v2** til iPhone 14 Pro Max. DroneHub bevares som et separat projekt.
+25. oktober 2026. Vedligeholdt appplan og prioriteret byggegrundlag. Udgangspunktet er brugerens genfundne **Scan3D LiDAR – Pro Max v2** til iPhone 14 Pro Max. DroneHub bevares som et separat projekt.
 
 ## Aktuel reviewimplementering
 
@@ -10,7 +10,9 @@ Den efterfølgende reviewændring tilføjer kameravideo fra den eksisterende ARK
 
 Reviewkilden har nu en RealityKit-resultatviewer til gemte PLY-punktskyer og OBJ-mesh. Den åbnes fra projektbiblioteket og fra resultatets seneste gemte geometri. Filens størrelse og SHA-256 kontrolleres før parsing. Træk/knib, dreje-/zoomknapper, nulstilling og lys baggrund ændrer kun visningen; originale filer bevares. Punktskyer vises som små markører med højst 20.000 udvalgte visningspunkter. De er ikke rekonstruerede overflader. Udstrækningen vises i AR-akser som vejledende centimeter. Parseren er begrænset til appens egne ASCII-PLY og trekantede OBJ uden materialer, højst 32 MiB, 480.000 hjørner og 160.000 trekanter.
 
-Det er reviewkode, der skal gennem CI og fysisk test. Den automatiske fotokontrol måler stadig ikke skarphed/eksponering. Foto-/video-til-model, samlet projektbackup/import og signeret installation er endnu ikke implementeret. Den nye 3D-viewers rendering, bevægelser, tilgængelighed og ydelse skal afprøves i native runtime; kompilering og parsertests beviser ikke den visuelle oplevelse på iPhone. Videotests bruger syntetiske billeder med rigtig kodning og afkodning på macOS; de beviser ikke fysisk iPhone-optagelse. Den oprindelige materialepakke er bevaret som historisk grundlag; den aktuelle kilde og denne faste appplan opdateres gennem GitHub-værktøjet uden ny ZIP.
+Camera Studio-reviewet tilføjer understøttet højopløsningsfoto, fysisk orienterede sRGB-JPEG, lys-/detaljevejledning fra den aktuelle frame, autofokus-status og både translations- og drejestabilitet. LiDAR kræver confidence/nabostøtte og bruger begrænset voxel-middel. 8 mm voxelafstand er ikke en nøjagtighedspåstand. Skærmen har større kamera, AR-projiceret søger, kvalitetsindikatorer og en enklere header. Se docs/CAMERA_STUDIO_DA.md.
+
+Native Simulator-tests bruger tydeligt mærket, isoleret testmotiv og åbner den rigtige RealityKit-viewer med et gemt syntetisk OBJ. UI, lys-/fejlvejledning, stor tekst og landskab kontrolleres med screenshots; JPEG-pathen afprøves separat gennem CoreVideo/CoreImage/ImageIO. Resultatet skal altid knyttes til den konkrete CI-revision. Det erstatter ikke fysisk kamera-/LiDAR-test, kalibreret fokus/eksponering eller fuld VoiceOver-afprøvning. Foto-/video-til-model, samlet projektbackup/import og signeret installation er endnu ikke implementeret. Videotests bruger syntetiske billeder med rigtig kodning og afkodning på macOS; de beviser ikke fysisk iPhone-optagelse. Den oprindelige materialepakke er bevaret som historisk grundlag; den aktuelle kilde og denne faste appplan opdateres gennem GitHub-værktøjet uden ny ZIP.
 
 ## Den oplevelse, der skal bygges
 
@@ -23,14 +25,14 @@ Første skærm viser en stor **Ny scanning**-knap og visuelle kort med dine tidl
 | Område | Verificeret grundlag | Hvad der mangler |
 | --- | --- | --- |
 | Native iPhone-app | SwiftUI, ARKit, RealityKit, kamera og LiDAR-kode | Signeret installation og fysisk test |
-| Fotoguide | 36 positioner, frisk frame-kontrol, stabilitetskrav, genfoto og ny automatisk udløser i review | Fysisk test af automatisk optagelse, skarphed/eksponering og enklere samlet brugerflow |
+| Fotoguide | 36 positioner, frisk frame-kontrol, stabilitetskrav, genfoto og ny automatisk udløser i review | Camera Studio har lys-/detalje-/fokusstatus i review; fysisk kalibrering og optageprøve mangler |
 | Gemte fotos | Nyt projektmanifest med hashes, bibliotek, genåbning og bevarede genfotos i review | Fysisk afprøvning, samlet projektbackup/import og gendannelse af AR-mission |
-| 3D-geometri | Målt LiDAR-punktsky som PLY og ARKit-scenemesh som OBJ; ny RealityKit-resultatviewer i review | Native visuel afprøvning, objektisolering, kvalitetskontrol og mere detaljeret model |
+| 3D-geometri | Målt LiDAR-punktsky som PLY og ARKit-scenemesh som OBJ; ny RealityKit-resultatviewer i review | Native Simulator-kontrol med syntetisk model i CI; fysisk kvalitet, objektisolering og mere detaljeret model mangler |
 | Video | Ny ARKit-baseret optagepipeline, lagring, afspilning og fildeling i review | Fysisk kamera-/ressourcetest og video som rekonstruktionsinput |
 | Rekonstruktion fra fotos | Ikke implementeret i den genfundne app | Object Capture-/fotogrammetriforløb |
 | Bygning | Seneste GitHub-test og usignerede Simulator-build bestået | Signeret fysisk enhedsbuild/TestFlight |
 
-Grundlag: GitHub main `37aad26b594eb79183afbe197ba5ad3f7e07d412`, den checksumkontrollerede rettede v2-ZIP og run `40053563785`. Pakkens gamle README-status er historisk; den aktuelle CI-kontrol er nyere. Et grønt Simulator-build dokumenterer ikke fysisk LiDAR-kvalitet.
+Historisk grundlag: GitHub main `37aad26b594eb79183afbe197ba5ad3f7e07d412`, den checksumkontrollerede rettede v2-ZIP og run `40053563785`. Aktuel reviewkode og tests findes i [draft PR #1](https://github.com/cliffdkp1990/scan3d-lidar-native/pull/1); projektets fælles status kontrollerer den præcise reviewrevision. Pakkens gamle README-status er historisk; den aktuelle CI-kontrol er nyere. Et grønt Simulator-build dokumenterer ikke fysisk LiDAR-kvalitet.
 
 ## Foto, video og 3D i samme projekt
 

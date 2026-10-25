@@ -18,14 +18,22 @@ struct LiDARCameraView: UIViewRepresentable {
         view.environment.sceneUnderstanding.options=[]
         view.renderOptions=[.disableCameraGrain,.disableMotionBlur,.disableDepthOfField]
         view.debugOptions=engine.showWireframe ? [.showSceneUnderstanding] : []
-        engine.start(using:view.session)
+        DispatchQueue.main.async { [weak engine=engine,weak view] in
+            guard let engine,let view else { return }
+            engine.start(using:view.session)
+        }
         return view
     }
     func updateUIView(_ view:CaptureARView,context:Context) {
         view.debugOptions=engine.showWireframe ? [.showSceneUnderstanding] : []
         engine.updateViewport(size:view.bounds.size,orientation:view.window?.windowScene?.interfaceOrientation ?? .portrait)
     }
-    static func dismantleUIView(_ view:CaptureARView,coordinator:()) { view.scanEngine?.stop() }
+    static func dismantleUIView(_ view:CaptureARView,coordinator:()) {
+        view.session.pause()
+        let session=view.session
+        let engine=view.scanEngine
+        DispatchQueue.main.async { [weak engine] in if engine?.session === session { engine?.stop() } }
+    }
 }
 
 private enum Atelier {
@@ -150,7 +158,7 @@ struct ContentView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment:.leading,spacing:15) {
-                    Text("Vælg en rosa position, hvis du vil tage et foto om. Appen kontrollerer stadig den rigtige ARKit-vinkel.")
+                    Text("Vælg en grøn position, hvis du vil tage et foto om. Appen kontrollerer stadig den rigtige ARKit-vinkel.")
                         .font(.subheadline).foregroundStyle(Atelier.muted)
                     ForEach(0..<3,id:\.self) { ring in
                         VStack(alignment:.leading,spacing:12) {

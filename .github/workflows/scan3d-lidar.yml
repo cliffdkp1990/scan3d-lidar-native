@@ -80,6 +80,14 @@ jobs:
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -derivedDataPath "$RUNNER_TEMP/Scan3DBuild" -resultBundlePath "$RUNNER_TEMP/Scan3D-UI.xcresult" \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/scan3d-ui.log"
+      - name: Compile Release without test fixture activation
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -project Scan3DLiDAR/Scan3DLiDAR.xcodeproj -scheme Scan3DLiDAR \
+            -configuration Release -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/Scan3DRelease" CODE_SIGNING_ALLOWED=NO build \
+            2>&1 | tee "$RUNNER_TEMP/scan3d-release.log"
       - name: Export native screenshots and UI report
         if: always()
         shell: bash
@@ -94,6 +102,7 @@ jobs:
           name: scan3d-native-ui-evidence
           path: |
             ${{ runner.temp }}/scan3d-ui.log
+            ${{ runner.temp }}/scan3d-release.log
             ${{ runner.temp }}/scan3d-ui-attachments
           if-no-files-found: ignore
           retention-days: 7

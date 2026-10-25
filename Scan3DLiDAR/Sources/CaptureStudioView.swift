@@ -18,18 +18,29 @@ struct CaptureStudioView: View {
     let onRetake:()->Void
     let onNewTarget:()->Void
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body:some View {
         ScrollView {
             VStack(spacing:20) {
                 header
+                if let issue=engine.cameraIssue {
+                    VStack(alignment:.leading,spacing:12) {
+                        Label(issue,systemImage:"exclamationmark.triangle").foregroundStyle(.orange).fixedSize(horizontal:false,vertical:true)
+                        if engine.cameraPermissionDenied {
+                            Button("Åbn kameraindstillinger") {
+                                if let url=URL(string:UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                            }.buttonStyle(.bordered)
+                        }
+                    }.padding().frame(maxWidth:.infinity,alignment:.leading)
+                        .background(Studio.panel,in:RoundedRectangle(cornerRadius:18))
+                }
                 if engine.cameraAvailable {
-                    let wide=size.width > size.height && !typeSize.isAccessibilitySize
+                    let contentWidth=max(1,size.width-32)
+                    let wide=size.width > size.height && contentWidth >= 650 && !typeSize.isAccessibilitySize
                     let layout=wide ? AnyLayout(HStackLayout(alignment:.top,spacing:20)) : AnyLayout(VStackLayout(spacing:20))
                     layout {
-                        cameraStage.frame(width:wide ? max(280,size.width*0.52) : nil,
-                            height:wide ? 340 : max(300,min(580,size.height*0.55)))
+                        cameraStage.frame(width:wide ? (contentWidth-20)*0.48 : contentWidth,
+                            height:wide ? max(260,min(400,size.height-110)) : max(280,min(520,size.height*0.5)))
                         VStack(spacing:18) { guidance; captureDock; quality; coverage }.frame(maxWidth:.infinity)
                     }
                     options
@@ -38,21 +49,26 @@ struct CaptureStudioView: View {
                         description:Text("Optagelse kræver en iPhone med LiDAR, eksempelvis iPhone 14 Pro Max. Du kan stadig åbne dine gemte scanninger."))
                     Button("Åbn mine scanninger",action:onLibrary).buttonStyle(.borderedProminent)
                 }
-            }.padding(16).padding(.bottom,22)
+            }.frame(width:max(1,size.width-32)).padding(16).padding(.bottom,22)
         }
+        .frame(width:size.width,height:size.height)
+        .accessibilityIdentifier("studio-scroll")
         .background(Studio.ink.ignoresSafeArea()).tint(Studio.mint)
     }
 
     private var header:some View {
-        HStack(spacing:12) {
+        let layout=typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment:.leading,spacing:14)) : AnyLayout(HStackLayout(spacing:12))
+        return layout {
             VStack(alignment:.leading,spacing:4) {
-                Text("SCAN3D STUDIO").font(.caption.weight(.heavy)).tracking(2).foregroundStyle(Studio.mint)
-                Text("Indfang formen.").font(.title2.bold()).foregroundStyle(.white)
+                Text("SCAN3D STUDIO").font(.caption.weight(.heavy)).tracking(typeSize.isAccessibilitySize ? 0:2).foregroundStyle(Studio.mint)
+                Text("Indfang formen.").font(.title2.bold()).foregroundStyle(.white).fixedSize(horizontal:false,vertical:true)
             }.frame(maxWidth:.infinity,alignment:.leading)
-            Button(action:onLibrary) { Image(systemName:"square.stack.3d.up").frame(width:48,height:48) }
-                .buttonStyle(.bordered).clipShape(Circle()).accessibilityLabel("Mine scanninger")
-            Button(action:onResult) { Image(systemName:"cube.transparent").frame(width:48,height:48) }
-                .buttonStyle(.bordered).clipShape(Circle()).accessibilityLabel("Resultat og eksport")
+            HStack(spacing:10) {
+                Button(action:onLibrary) { Image(systemName:"square.stack.3d.up").font(.system(size:21)).frame(width:48,height:48).background(Studio.mint.opacity(0.15),in:Circle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Mine scanninger")
+                Button(action:onResult) { Image(systemName:"cube.transparent").font(.system(size:21)).frame(width:48,height:48).background(Studio.mint.opacity(0.15),in:Circle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Resultat og eksport")
+            }
         }
     }
 
@@ -95,6 +111,7 @@ struct CaptureStudioView: View {
         }
         .accessibilityElement(children:.contain)
         .accessibilityLabel("Kameravisning")
+        .accessibilityIdentifier("studio-camera")
     }
 
     private func focusOverlay(size:CGSize)->some View {
@@ -135,6 +152,10 @@ struct CaptureStudioView: View {
     private var captureDock:some View {
         VStack(spacing:14) {
             if !engine.missionTargetLocked {
+                if !engine.running {
+                    Button("Start kamera") { if let session=engine.session { engine.start(using:session) } }
+                        .buttonStyle(.borderedProminent).disabled(engine.savingPhoto || engine.isStudioFixture)
+                }
                 Button(action:onNewTarget) { Label("Lås genstanden",systemImage:"scope").frame(maxWidth:.infinity,minHeight:48) }
                     .buttonStyle(.borderedProminent).foregroundStyle(Studio.ink)
                     .disabled(!engine.running || engine.savingPhoto || engine.videoBusy)
@@ -151,6 +172,7 @@ struct CaptureStudioView: View {
                         }
                     }.disabled(!engine.missionReady || engine.savingPhoto || engine.isStudioFixture)
                         .accessibilityLabel(engine.retakeSlotIndex == nil ? "Tag foto nu" : "Tag foto om")
+                        .accessibilityIdentifier("capture-photo")
                     Spacer(minLength:0)
                     Button {
                         if engine.videoState == .recording { engine.stopVideo() } else { engine.startVideo() }
@@ -177,7 +199,7 @@ struct CaptureStudioView: View {
 
     private var quality:some View {
         LazyVGrid(columns:[GridItem(.adaptive(minimum:140),spacing:10)],spacing:10) {
-            indicator("BILLEDE",value:engine.photoCondition.title,icon:"camera.aperture",good:engine.photoCondition == .ready)
+            indicator("BILLEDE",value:engine.focusAdjusting ? "Fokuserer" : engine.photoCondition.title,icon:"camera.aperture",good:engine.photoCondition == .ready && !engine.focusAdjusting)
             indicator("LIDAR",value:engine.depthSupport,icon:"cube.transparent",good:engine.depthReliable)
             indicator("SPORING",value:engine.trackingNormal ? "Stabil" : "Afventer",icon:"viewfinder",good:engine.trackingNormal)
         }

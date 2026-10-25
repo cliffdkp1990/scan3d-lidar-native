@@ -30,7 +30,6 @@ check(MissionRoute.navigate(from:routeCurrent,covered:[12])?.stepCount == 1,"sug
 check(MissionRoute.navigate(from:routeCurrent,covered:[12])?.message.contains("med uret") == true,"direction clockwise")
 check(MissionRoute.navigate(from:ScanSlot(ring:1,sector:0),covered:Set(12..<24))?.message.contains("kameraet") == true,"height guidance")
 check(MissionRoute.navigate(from:routeCurrent,covered:Set(0..<36)) == nil,"all covered no route")
-print("PASS \(assertions)/\(assertions) - native orbital mission geometry + route v11")
 
 // v12 explicit retake: only the selected covered position, never some other slot.
 check(MissionRetake.select(slot: 12, covered: [12,13]) == 12, "retake covered")
@@ -45,4 +44,4 @@ check(MissionRetake.canCapture(slot: 14, covered: [12], retake: nil, cameraReady
 check(!MissionRetake.canCapture(slot: 14, covered: [12], retake: 12, cameraReady: true), "unrelated new photo blocked")
 check(MissionRoute.navigateTo(from: ScanSlot(ring:1,sector:1), target:ScanSlot(ring:1,sector:0)).message.contains("mod uret"),"retake navigate backward")
 check(MissionRoute.navigateTo(from: ScanSlot(ring:1,sector:1), target:ScanSlot(ring:2,sector:1)).message.contains("Hæv"),"retake navigate higher")
-print("PASS V12 - explicit retake policy and route")
+print("PASS \(assertions)/\(assertions) - native orbital mission, route and explicit retake policy")

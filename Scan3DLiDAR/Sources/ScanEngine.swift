@@ -1,4 +1,5 @@
 import ARKit
+import AVFoundation
 import Combine
 import CoreImage
 import Foundation
@@ -36,6 +37,9 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var targetOutsideView = false
     @Published private(set) var trackingNormal = false
     @Published private(set) var depthReliable = false
+    @Published private(set) var focusAdjusting = false
+    @Published private(set) var cameraPermissionDenied = false
+    @Published private(set) var cameraIssue: String?
     private var viewportSize = CGSize.zero
     private var interfaceOrientation: UIInterfaceOrientation = .portrait
     private var qualityTimestamp: TimeInterval?
@@ -131,16 +135,32 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             distanceText="≈ 0,72 m"; depthSupport="Dybde 23/25";lidarPointCount=480
             photoSourceDescription="Simulator — testmotiv";liveResolution="Testdata"
             trackingText="Position følges";targetScreenPoint=CGPoint(x:0.5,y:0.47)
-            let dark=ProcessInfo.processInfo.environment["SCAN3D_QUALITY_SCENARIO"]=="dark"
+            let scenario=ProcessInfo.processInfo.environment["SCAN3D_QUALITY_SCENARIO"]
+            let dark=scenario=="dark"
             photoCondition=dark ? .tooDark : .ready
             missionReady = !dark
             guidanceText=dark ? PhotoCondition.tooDark.guidance : "God vinkel. Hold telefonen roligt."
+            if scenario=="denied" || scenario=="interrupted" {
+                cameraPermissionDenied=scenario=="denied"
+                cameraIssue=cameraPermissionDenied ? "Kameraadgang mangler. Tillad kameraet i iPhones indstillinger, og tryk Start kamera." : "Kameraet er afbrudt. Gemte optagelser er bevaret."
+                running=false;missionReady=false;guidanceText=cameraIssue ?? "Kameraet er afbrudt."
+            }
         } catch { libraryMessage="Simulatorens testprojekt kunne ikke klargøres: \(error.localizedDescription)" }
         #endif
     }
 
     func start(using session: ARSession) {
         guard !savingPhoto, !videoBusy else { return }
+        self.session=session
+        let permission=AVCaptureDevice.authorizationStatus(for:.video)
+        guard permission != .denied && permission != .restricted else {
+            cameraPermissionDenied=true
+            cameraIssue="Kameraadgang mangler. Tillad kameraet i iPhones indstillinger, og tryk Start kamera."
+            guidanceText=cameraIssue ?? "Kameraadgang mangler."
+            running=false
+            return
+        }
+        cameraPermissionDenied=false;cameraIssue=nil
         guard Self.supportsLiDAR else {
             trackingText = "LiDAR-dybde er ikke understøttet på denne enhed."
             return
@@ -428,15 +448,20 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
+        invalidateQuality()
         stopVideo(reason: "sessionError")
         running = false
         missionReady = false
         stableSince = nil
         needsNewCoordinateSpace = true
         trackingText = "ARKit-fejl: \(error.localizedDescription)"
+        cameraPermissionDenied=AVCaptureDevice.authorizationStatus(for:.video) == .denied
+        cameraIssue=cameraPermissionDenied ? "Tillad kameraet i iPhones indstillinger, og start kameraet igen." : "Kameraet kunne ikke fortsætte: \(error.localizedDescription). Gemte optagelser er bevaret."
+        guidanceText=cameraIssue ?? trackingText
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
+        invalidateQuality()
         stopVideo(reason: "sessionInterrupted")
         // Apple: do not pause inside this callback, or interruption-ended is lost.
         running = false
@@ -444,6 +469,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         stableSince = nil
         needsNewCoordinateSpace = true
         trackingText = "Kamera afbrudt. Projektet er bevaret."
+        cameraIssue="Kameraet blev afbrudt. Fortsæt og lås genstanden igen, når du er klar."
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
@@ -458,7 +484,14 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         switch tracking {
         case .normal: return "Position følges"
         case .notAvailable: return "Sporing ikke tilgængelig"
-        case .limited: return "Begrænset sporing – bevæg telefonen langsomt"
+        case .limited(let reason):
+            switch reason {
+            case .excessiveMotion: return "Bevæg telefonen langsommere."
+            case .insufficientFeatures: return "Find en vinkel med mere struktur og jævnt lys."
+            case .initializing: return "Kameraet finder positionen …"
+            case .relocalizing: return "Finder positionen igen. Vent, eller start med et nyt mål."
+            @unknown default: return "Begrænset sporing. Hold kameraet roligt."
+            }
         }
     }
 
@@ -476,6 +509,9 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         previousForward=nil; previousUp=nil
         depthSupport="Venter på dybde"
         targetScreenPoint=nil
+        targetOutsideView=false
+        distanceText="—"
+        focusAdjusting=false
         trackingNormal=false; depthReliable=false
         lastProjectionTime = -1
     }
@@ -500,7 +536,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         guard frame.timestamp-lastProjectionTime >= 0.08 else { return }
         lastProjectionTime=frame.timestamp
         guard let target=targetPoint, viewportSize.width > 0, viewportSize.height > 0,
-              forward.dot(target-camera) > 0 else { targetScreenPoint=nil; return }
+              forward.dot(target-camera) > 0 else { targetScreenPoint=nil; targetOutsideView=false; return }
         let point=frame.camera.projectPoint(SIMD3<Float>(Float(target.x),Float(target.y),Float(target.z)),
             orientation:interfaceOrientation,viewportSize:viewportSize)
         guard point.x.isFinite, point.y.isFinite else { targetScreenPoint=nil; return }
@@ -524,6 +560,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         let normal:Bool
         if case .normal=frame.camera.trackingState { normal=true } else { normal=false }
         if trackingNormal != normal { trackingNormal=normal }
+        let adjusting=ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera?.isAdjustingFocus ?? false
+        if focusAdjusting != adjusting { focusAdjusting=adjusting }
         let depth=estimate?.meters
         let support=estimate.map { "Dybde \($0.supportedSamples)/25" } ?? "Usikker dybde"
         if depthSupport != support { depthSupport=support }
@@ -566,7 +604,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                 let resourceOK=thermal != .serious && thermal != .critical
                 let imageOK=CaptureMotion.fresh(qualityTime:qualityTimestamp,frameTime:time) && photoCondition.allowsCapture
                 let retakeThisSlot = MissionRetake.canCapture(slot: feedback.slot.index,
-                    covered: capturedSlots, retake: retakeSlotIndex, cameraReady: feedback.ready && imageOK && estimate != nil && resourceOK)
+                    covered: capturedSlots, retake: retakeSlotIndex, cameraReady: feedback.ready && imageOK && estimate != nil && resourceOK && !adjusting)
                 if missionReady != retakeThisSlot { missionReady=retakeThisSlot }
                 guidanceText = alreadyCaptured && retakeSlotIndex != feedback.slot.index
                     ? "Denne vinkel er allerede dækket. Vælg den grønne position, hvis billedet skal tages om."
@@ -575,7 +613,9 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                         : feedback.instruction
                 if feedback.ready && !imageOK { guidanceText=photoCondition.guidance }
                 else if feedback.ready && estimate == nil { guidanceText="Dybden er usikker. Undgå blanke kanter, og centrér genstanden." }
+                else if feedback.ready && adjusting { guidanceText="Vent et øjeblik — kameraet stiller skarpt." }
                 else if !resourceOK { guidanceText="Telefonen er varm. Hold pause, før du tager flere fotos." }
+                if !trackingGood { guidanceText=trackingText }
                 if let desired = retakeSlotIndex {
                     let retakeSlot = ScanSlot(ring: desired / 12, sector: desired % 12)
                     let route = MissionRoute.navigateTo(from: feedback.slot, target: retakeSlot)
@@ -721,6 +761,12 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func processPhoto(_ frame:ARFrame,project:ScanProject,token:PhotoRequestToken,source:String) {
+        let thermal=ProcessInfo.processInfo.thermalState
+        guard thermal != .serious && thermal != .critical,
+              ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera?.isAdjustingFocus != true else {
+            photoFailed(token,message:"Kameraet fokuserer, eller telefonen er varm. Vent et øjeblik og prøv igen.",stopAutomatic:false)
+            return
+        }
         guard photoLifecycle.active==token, token.generation==qualityGeneration,
               activeProject?.id==token.projectID, running, !captureSuspended,
               let target=targetPoint else {
@@ -799,6 +845,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                 info["photo_quality_condition"]=measured.condition.rawValue
                 info["quality_warning"]="Central luma/detail heuristic, not calibrated focus or reconstruction-quality verification."
                 info["point_voxel_spacing_m"]=self.cloud.resolution
+                info["lidar_filter_version"]="confidence-neighbour-voxel-1"
                 let saved=try self.projectStore.saveCapture(projectID:project.id,slot:slotKey,jpeg:encoded.data,
                     metadata:JSONSerialization.data(withJSONObject:info,options:[.prettyPrinted]),
                     thumbnail:Self.thumbnail(encoded.data),pointCloud:GeometryExport.ply(points:points))
