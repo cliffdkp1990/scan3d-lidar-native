@@ -136,7 +136,7 @@ private struct GeometryViewport: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> ARView {
         let view = GeometryARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
-        view.environment.background = .color(lightBackground ? .systemGray6 : .black)
+        view.renderOptions=[.disableCameraGrain,.disableMotionBlur,.disableDepthOfField]
         view.accessibilityLabel = "3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder."
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = "geometry-viewport"
@@ -147,15 +147,10 @@ private struct GeometryViewport: UIViewRepresentable {
             descriptor.positions = MeshBuffers.Positions(prepared.positions)
             descriptor.primitives = .triangles(prepared.indices)
             let mesh = try MeshResource.generate(from: [descriptor])
-            if prepared.geometry.isPointCloud {
-                anchor.addChild(ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: .systemTeal)]))
-            } else {
-                var material = PhysicallyBasedMaterial()
-                material.baseColor = .init(tint: .systemTeal)
-                material.roughness = .init(floatLiteral: 0.8)
-                material.faceCulling = .none
-                anchor.addChild(ModelEntity(mesh: mesh, materials: [material]))
-            }
+            let model=ModelEntity(mesh:mesh,materials:[])
+            coordinator.modelEntity=model
+            coordinator.updateAppearance(view)
+            anchor.addChild(model)
             let light = DirectionalLight()
             light.light.intensity = 2500
             light.look(at: .zero, from: [2,3,4], relativeTo: nil)
@@ -184,7 +179,7 @@ private struct GeometryViewport: UIViewRepresentable {
     func updateUIView(_ view: ARView, context: Context) {
         context.coordinator.owner = self
         context.coordinator.updateCamera()
-        view.environment.background = .color(lightBackground ? .systemGray6 : .black)
+        context.coordinator.updateAppearance(view)
         view.accessibilityValue = String(format:"Visningszoom %.1f gange. Drejning %.0f grader. Hældning %.0f grader.",
             4.5/camera.distance,camera.yaw*180 / .pi,camera.pitch*180 / .pi)
     }
@@ -193,8 +188,26 @@ private struct GeometryViewport: UIViewRepresentable {
     final class Coordinator: NSObject {
         var owner: GeometryViewport
         let cameraEntity = PerspectiveCamera()
+        var modelEntity:ModelEntity?
+        private var appliedLightBackground:Bool?
         init(_ owner: GeometryViewport) { self.owner = owner }
         func updateCamera() { cameraEntity.look(at: .zero, from: owner.camera.position, relativeTo: nil) }
+        func updateAppearance(_ view:ARView) {
+            guard appliedLightBackground != owner.lightBackground else { return }
+            appliedLightBackground=owner.lightBackground
+            // Fixed canvas colors honor this user choice even when the app chrome uses dark appearance.
+            view.environment.background = .color(owner.lightBackground ? UIColor(white:0.94,alpha:1):UIColor.black)
+            let tint=owner.lightBackground ? UIColor(red:0.04,green:0.35,blue:0.41,alpha:1):UIColor.systemTeal
+            if owner.prepared.geometry.isPointCloud {
+                modelEntity?.model?.materials=[UnlitMaterial(color:tint)]
+            } else {
+                var material=PhysicallyBasedMaterial()
+                material.baseColor = .init(tint:tint)
+                material.roughness = .init(floatLiteral:0.8)
+                material.faceCulling = .none
+                modelEntity?.model?.materials=[material]
+            }
+        }
         @objc func pan(_ gesture: UIPanGestureRecognizer) {
             guard gesture.state == .changed || gesture.state == .ended else { return }
             let delta = gesture.translation(in: gesture.view)

@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// Native UI with explicit synthetic test input; no camera/LiDAR hardware claim.
 final class CaptureStudioUITests:XCTestCase {
@@ -6,10 +7,11 @@ final class CaptureStudioUITests:XCTestCase {
         continueAfterFailure=false
         XCUIDevice.shared.orientation = .portrait
     }
-    private func launch(dark:Bool=false,large:Bool=false,scenario:String?=nil)->XCUIApplication {
+    private func launch(dark:Bool=false,large:Bool=false,scenario:String?=nil,dense:Bool=false)->XCUIApplication {
         let app=XCUIApplication()
         app.launchEnvironment["SCAN3D_STUDIO_FIXTURE"]="1"
         app.launchEnvironment["SCAN3D_QUALITY_SCENARIO"]=scenario ?? (dark ? "dark" : "ready")
+        app.launchEnvironment["SCAN3D_DENSE_CLOUD_FIXTURE"]=dense ? "1":"0"
         if large { app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"] }
         app.launch()
         XCTAssertTrue(app.staticTexts["studio-fixture-label"].waitForExistence(timeout:20))
@@ -32,6 +34,48 @@ final class CaptureStudioUITests:XCTestCase {
             app.swipeUp()
         }
         XCTFail("Control could not be reached by vertical scrolling: \(element.identifier)")
+    }
+    private func viewportBrightness(_ viewport:XCUIElement,in app:XCUIApplication)->Double? {
+        guard let image=XCUIScreen.main.screenshot().image.cgImage else { return nil }
+        let window=app.windows.firstMatch.frame, frame=viewport.frame
+        let x=(frame.minX+28-window.minX)*CGFloat(image.width)/window.width
+        let y=(frame.minY+28-window.minY)*CGFloat(image.height)/window.height
+        guard x>=0,y>=0,x<CGFloat(image.width),y<CGFloat(image.height),
+              let sample=image.cropping(to:CGRect(x:x.rounded(.down),y:y.rounded(.down),width:1,height:1)) else { return nil }
+        var pixel=[UInt8](repeating:0,count:4)
+        let rendered=pixel.withUnsafeMutableBytes { bytes->Bool in
+            guard let context=CGContext(data:bytes.baseAddress,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,
+                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(sample,in:CGRect(x:0,y:0,width:1,height:1));return true
+        }
+        return rendered ? (Double(pixel[0])+Double(pixel[1])+Double(pixel[2]))/3:nil
+    }
+    func testActualDensePointCloud()throws {
+        let app=launch(dense:true)
+        app.buttons["Resultat og eksport"].tap()
+        let open=app.buttons["Se seneste gemte 3D-data"]
+        for _ in 0..<3 { if open.isHittable { break };app.swipeUp() }
+        XCTAssertTrue(open.waitForExistence(timeout:10));open.tap()
+        XCTAssertTrue(app.staticTexts["Målte LiDAR-punkter"].waitForExistence(timeout:30))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","48000 gemte punkter · 20000 vist")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["Kan ikke vise 3D-filen"].exists)
+        let viewport=app.otherElements["geometry-viewport"]
+        XCTAssertTrue(viewport.waitForExistence(timeout:10))
+        let darkBrightness=try XCTUnwrap(viewportBrightness(viewport,in:app))
+        XCTAssertLessThan(darkBrightness,100,"Dark canvas renders dark pixels")
+        screenshot("actual-point-cloud-dark-SYNTHETIC")
+        let before=viewport.value as? String
+        app.buttons["Zoom ind"].tap()
+        XCTAssertNotEqual(viewport.value as? String,before)
+        app.buttons["Nulstil 3D-visning"].tap()
+        let background=app.switches["Lys baggrund"]
+        XCTAssertTrue(background.isHittable)
+        background.tap()
+        let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportBrightness(viewport,in:app) ?? 0)>200 },object:nil)
+        wait(for:[bright],timeout:5)
+        let lightBrightness=try XCTUnwrap(viewportBrightness(viewport,in:app))
+        print("POINTCLOUD_CANVAS measured dark=\(darkBrightness), light=\(lightBrightness); synthetic 48000 saved, 20000 displayed")
+        screenshot("actual-point-cloud-light-SYNTHETIC")
     }
     func testPortraitCameraAndLibrary()throws {
         let app=launch()

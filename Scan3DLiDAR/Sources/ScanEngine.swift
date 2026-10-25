@@ -76,7 +76,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     let projectStore:ProjectStore = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["SCAN3D_STUDIO_FIXTURE"]=="1" {
-            return ProjectStore(root:FileManager.default.temporaryDirectory.appendingPathComponent("Scan3D-Isolated-UI-Fixtures",isDirectory:true))
+            let folder=ProcessInfo.processInfo.environment["SCAN3D_DENSE_CLOUD_FIXTURE"]=="1" ? "Scan3D-Isolated-Dense-UI-Fixtures":"Scan3D-Isolated-UI-Fixtures"
+            return ProjectStore(root:FileManager.default.temporaryDirectory.appendingPathComponent(folder,isDirectory:true))
         }
         #endif
         return ProjectStore()
@@ -125,14 +126,16 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         #if DEBUG
         guard isStudioFixture, activeProject == nil else { return }
         do {
-            let project=try StudioFixtures.project(in:projectStore)
+            let dense=ProcessInfo.processInfo.environment["SCAN3D_DENSE_CLOUD_FIXTURE"]=="1"
+            let project=try StudioFixtures.project(in:projectStore,dense:dense)
+            let captures=project.currentCaptures.count
             activeProject=project; projects=[project]
             running=true; trackingNormal=true; depthReliable=true
             missionTargetLocked=true; targetPoint=ScanPoint(x:0,y:0,z:0)
-            capturedSlots=Set(0..<8); savedCount=8
-            missionCoverage=(0..<36).map { $0 < 8 };missionProgress="8/36 vinkler"
+            capturedSlots=Set(0..<captures); savedCount=captures
+            missionCoverage=(0..<36).map { $0 < captures };missionProgress="\(captures)/36 vinkler"
             missionNavigation="Gå roligt til næste side og bevar afstanden."
-            distanceText="≈ 0,72 m"; depthSupport="Dybde 23/25";lidarPointCount=480
+            distanceText="≈ 0,72 m"; depthSupport="Dybde 23/25";lidarPointCount=dense ? 48_000:480
             photoSourceDescription="Simulator — testmotiv";liveResolution="Testdata"
             trackingText="Position følges";targetScreenPoint=CGPoint(x:0.5,y:0.47)
             let scenario=ProcessInfo.processInfo.environment["SCAN3D_QUALITY_SCENARIO"]

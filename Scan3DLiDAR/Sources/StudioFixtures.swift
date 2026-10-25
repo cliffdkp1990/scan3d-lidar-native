@@ -15,8 +15,8 @@ struct StudioFixtureBackdrop:View {
 
 #if DEBUG
 enum StudioFixtures {
+    private static let profile:[(Float,Float)]=[(-0.55,0.18),(-0.5,0.28),(-0.4,0.33),(-0.25,0.34),(-0.1,0.30),(0.05,0.22),(0.17,0.15),(0.32,0.13),(0.45,0.13),(0.48,0.16)]
     static func geometry()->(vertices:[CloudVertex],triangles:[(Int,Int,Int)]) {
-        let profile:[(Float,Float)]=[(-0.55,0.18),(-0.5,0.28),(-0.4,0.33),(-0.25,0.34),(-0.1,0.30),(0.05,0.22),(0.17,0.15),(0.32,0.13),(0.45,0.13),(0.48,0.16)]
         let sectors=48
         var vertices:[CloudVertex]=[], triangles:[(Int,Int,Int)]=[]
         for (y,radius) in profile { for sector in 0..<sectors {
@@ -29,12 +29,29 @@ enum StudioFixtures {
         }}
         return (vertices,triangles)
     }
-    static func project(in store:ProjectStore)throws->ScanProject {
+    private static func denseCloud()->[CloudVertex] {
+        var points:[CloudVertex]=[]
+        points.reserveCapacity(48_000)
+        for row in 0..<400 {
+            let y=profile[0].0 + (profile.last!.0-profile[0].0)*Float(row)/399
+            let segment=min(profile.count-2,max(0,(0..<(profile.count-1)).first(where:{y<=profile[$0+1].0}) ?? profile.count-2))
+            let t=(y-profile[segment].0)/(profile[segment+1].0-profile[segment].0)
+            let radius=profile[segment].1+(profile[segment+1].1-profile[segment].1)*t
+            for sector in 0..<120 {
+                let angle=Float(sector)*2 * .pi/120
+                points.append(CloudVertex(x:radius*cos(angle),y:y,z:radius*sin(angle)))
+            }
+        }
+        return points
+    }
+    static func project(in store:ProjectStore,dense:Bool=false)throws->ScanProject {
         if let existing=try store.library().projects.first(where:{$0.title=="SIMULATOR — TESTDATA"}) { return existing }
         var project=try store.create()
         // The visible title is persisted through the store's existing rename-free manifest format.
         project.title="SIMULATOR — TESTDATA"
         let geometry=geometry()
+        let points=dense ? denseCloud():geometry.vertices
+        let pointData=GeometryExport.ply(points:points)
         let renderer=UIGraphicsImageRenderer(size:CGSize(width:320,height:320))
         let image=renderer.image { context in
             UIColor(red:0.04,green:0.08,blue:0.10,alpha:1).setFill();context.fill(CGRect(x:0,y:0,width:320,height:320))
@@ -42,11 +59,11 @@ enum StudioFixtures {
             ("TESTMOTIV" as NSString).draw(at:CGPoint(x:95,y:145),withAttributes:[.font:UIFont.boldSystemFont(ofSize:20),.foregroundColor:UIColor.white])
         }
         guard let jpeg=image.jpegData(compressionQuality:0.9) else { throw ProjectStoreError.emptyFile }
-        for slot in 0..<8 {
+        for slot in 0..<(dense ? 1:8) {
             project=try store.saveCapture(projectID:project.id,slot:slot,jpeg:jpeg,
-                metadata:Data("{\"synthetic_ui_fixture\":true}".utf8),thumbnail:jpeg,pointCloud:GeometryExport.ply(points:geometry.vertices))
+                metadata:Data("{\"synthetic_ui_fixture\":true}".utf8),thumbnail:jpeg,pointCloud:pointData)
         }
-        _=try store.saveExport(projectID:project.id,data:GeometryExport.obj(vertices:geometry.vertices,triangles:geometry.triangles),ext:"obj")
+        if !dense { _=try store.saveExport(projectID:project.id,data:GeometryExport.obj(vertices:geometry.vertices,triangles:geometry.triangles),ext:"obj") }
         // This is an isolated Simulator test project; no deletion or user-original mutation.
         project=try store.load(project.id)
         project.title="SIMULATOR — TESTDATA"
