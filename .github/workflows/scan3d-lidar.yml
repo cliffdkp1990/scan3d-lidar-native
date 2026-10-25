@@ -25,6 +25,13 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
+      - name: Fast quality preflight and reporter regression tests
+        id: fast_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/scan3d_preflight.py
+          python3 -m unittest discover -s scripts -p 'test_scan3d_ci_report.py' -v
       - name: Select Xcode 26.6 and prepare Simulator
         id: prepare_environment
         shell: bash
@@ -49,9 +56,11 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as file: file.write('SCAN3D_SIMULATOR_ID='+simulator+'\n')
           PY
       - name: Test mission, current photo frame and exports
+        id: source_tests
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee "$RUNNER_TEMP/scan3d-source-tests.log") 2>&1
           cd Scan3DLiDAR
           swiftc Sources/MissionGeometry.swift Tests/mission/main.swift -o "$RUNNER_TEMP/mission-tests"
           "$RUNNER_TEMP/mission-tests"
@@ -101,6 +110,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Run native camera and model-viewer UI tests
+        id: native_ui
         if: ${{ !cancelled() && steps.debug_build.outcome == 'success' }}
         shell: bash
         run: |
@@ -112,6 +122,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/Scan3DBuild" -resultBundlePath "$RUNNER_TEMP/Scan3D-UI.xcresult" \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/scan3d-ui.log"
       - name: Compile Release without test fixture activation
+        id: release_build
         if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
@@ -121,6 +132,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/Scan3DRelease" CODE_SIGNING_ALLOWED=NO build \
             2>&1 | tee "$RUNNER_TEMP/scan3d-release.log"
       - name: Compile unsigned iOS device app
+        id: device_build
         if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
@@ -129,6 +141,18 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/Scan3DDevice" CODE_SIGNING_ALLOWED=NO build \
             2>&1 | tee "$RUNNER_TEMP/scan3d-device.log"
+      - name: Generate SHA-bound CI report
+        if: always()
+        shell: bash
+        run: |
+          python3 scripts/scan3d_ci_report.py \
+            --sha "${{ github.sha }}" --run-id "${{ github.run_id }}" \
+            --log-directory "$RUNNER_TEMP" --output "$RUNNER_TEMP/scan3d-ci-status.json" \
+            --source "${{ steps.source_tests.outcome }}" \
+            --debug "${{ steps.debug_build.outcome }}" \
+            --ui "${{ steps.native_ui.outcome }}" \
+            --release "${{ steps.release_build.outcome }}" \
+            --device "${{ steps.device_build.outcome }}"
       - name: Export native screenshots and UI report
         if: always()
         shell: bash
@@ -146,6 +170,8 @@ jobs:
         with:
           name: scan3d-native-ui-evidence
           path: |
+            ${{ runner.temp }}/scan3d-ci-status.json
+            ${{ runner.temp }}/scan3d-source-tests.log
             ${{ runner.temp }}/scan3d-ui.log
             ${{ runner.temp }}/scan3d-release.log
             ${{ runner.temp }}/scan3d-device.log
