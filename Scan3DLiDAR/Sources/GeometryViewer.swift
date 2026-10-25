@@ -61,6 +61,7 @@ struct StoredGeometryViewer: View {
                     if prepared.geometry.isPointCloud {
                         Text("\(prepared.geometry.vertices.count) gemte punkter · \(prepared.displayedPoints) vist. Punkterne vises som små markører, ikke en sammenhængende overflade. Originalfilen ændres ikke.")
                             .font(.subheadline)
+                            .accessibilityIdentifier("stored-point-count")
                     } else {
                         Text("\(prepared.geometry.triangles.count / 3) trekanter · \(prepared.geometry.vertices.count) anvendte hjørner")
                             .font(.subheadline)

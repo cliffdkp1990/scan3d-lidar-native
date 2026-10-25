@@ -45,10 +45,32 @@ final class CaptureStudioUITests:XCTestCase {
         var pixel=[UInt8](repeating:0,count:4)
         let rendered=pixel.withUnsafeMutableBytes { bytes->Bool in
             guard let context=CGContext(data:bytes.baseAddress,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,
-                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
             context.draw(sample,in:CGRect(x:0,y:0,width:1,height:1));return true
         }
         return rendered ? (Double(pixel[0])+Double(pixel[1])+Double(pixel[2]))/3:nil
+    }
+    private func visiblePointPixels(_ viewport:XCUIElement,in app:XCUIApplication)->Int {
+        guard let image=XCUIScreen.main.screenshot().image.cgImage else { return 0 }
+        let window=app.windows.firstMatch.frame, frame=viewport.frame
+        let sx=CGFloat(image.width)/window.width, sy=CGFloat(image.height)/window.height
+        let crop=CGRect(x:(frame.minX-window.minX)*sx,y:(frame.minY-window.minY)*sy,
+            width:frame.width*sx,height:frame.height*sy).integral
+        guard crop.minX>=0,crop.minY>=0,crop.maxX<=CGFloat(image.width),crop.maxY<=CGFloat(image.height),
+              let region=image.cropping(to:crop) else { return 0 }
+        let side=160
+        var pixels=[UInt8](repeating:0,count:side*side*4)
+        let drawn=pixels.withUnsafeMutableBytes { bytes->Bool in
+            guard let context=CGContext(data:bytes.baseAddress,width:side,height:side,bitsPerComponent:8,bytesPerRow:side*4,
+                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            context.draw(region,in:CGRect(x:0,y:0,width:side,height:side));return true
+        }
+        guard drawn else { return 0 }
+        // Both canvas styles render teal geometry; the black/gray/white canvas cannot satisfy this.
+        return stride(from:0,to:pixels.count,by:4).reduce(0) { count,index in
+            let r=Int(pixels[index]), g=Int(pixels[index+1]), b=Int(pixels[index+2])
+            return count + (g-r>20 && b-r>20 ? 1:0)
+        }
     }
     func testActualDensePointCloud()throws {
         let app=launch(dense:true)
@@ -57,10 +79,16 @@ final class CaptureStudioUITests:XCTestCase {
         for _ in 0..<3 { if open.isHittable { break };app.swipeUp() }
         XCTAssertTrue(open.waitForExistence(timeout:10));open.tap()
         XCTAssertTrue(app.staticTexts["Målte LiDAR-punkter"].waitForExistence(timeout:30))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","48000 gemte punkter · 20000 vist")).firstMatch.exists)
+        let pointCount=app.staticTexts["stored-point-count"]
+        XCTAssertTrue(pointCount.waitForExistence(timeout:10))
+        // SwiftUI formats integers for the user's locale (for example 48,000 or 48.000).
+        XCTAssertEqual(pointCount.label.filter(\.isNumber),"4800020000",pointCount.label)
         XCTAssertFalse(app.staticTexts["Kan ikke vise 3D-filen"].exists)
         let viewport=app.otherElements["geometry-viewport"]
         XCTAssertTrue(viewport.waitForExistence(timeout:10))
+        let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in self.visiblePointPixels(viewport,in:app)>50 },object:nil)
+        wait(for:[drawn],timeout:20)
+        let darkPoints=visiblePointPixels(viewport,in:app)
         let darkBrightness=try XCTUnwrap(viewportBrightness(viewport,in:app))
         XCTAssertLessThan(darkBrightness,100,"Dark canvas renders dark pixels")
         screenshot("actual-point-cloud-dark-SYNTHETIC")
@@ -74,7 +102,9 @@ final class CaptureStudioUITests:XCTestCase {
         let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportBrightness(viewport,in:app) ?? 0)>200 },object:nil)
         wait(for:[bright],timeout:5)
         let lightBrightness=try XCTUnwrap(viewportBrightness(viewport,in:app))
-        print("POINTCLOUD_CANVAS measured dark=\(darkBrightness), light=\(lightBrightness); synthetic 48000 saved, 20000 displayed")
+        let lightPoints=visiblePointPixels(viewport,in:app)
+        XCTAssertGreaterThan(lightPoints,50,"Teal points remain visible on the light canvas")
+        print("POINTCLOUD_CANVAS measured dark=\(darkBrightness), light=\(lightBrightness); visible teal pixels dark=\(darkPoints), light=\(lightPoints); synthetic 48000 saved, 20000 displayed")
         screenshot("actual-point-cloud-light-SYNTHETIC")
     }
     func testPortraitCameraAndLibrary()throws {

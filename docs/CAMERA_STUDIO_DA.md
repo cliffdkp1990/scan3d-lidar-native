@@ -33,6 +33,8 @@ Sampleren afslutter ikke længere ved fyldt punktbudget: senere observationer m�
 
 Native UI-kontrollen omfatter også en særskilt syntetisk PLY-fil med 48.000 gemte punkter, hvor den rigtige renderer viser det maksimale udsnit på 20.000 punktmarkører. Den tester zoom, nulstilling og en lys baggrund med en pixelmåling fra det faktisk renderede skærmbillede. Testfilen har sin egen isolerede mappe og vises ikke som målte sensordata. Den lyse lærredsfarve er nu fast lys, fordi systemGray6 ellers blev mørk i appens mørke tema. Visningsfarven får højere kontrast på det lyse lærred; originalfilen ændres ikke. Fysisk GPU-ydelse på telefonen er fortsat uverificeret.
 
+Punktantallet kontrolleres fra den synlige tilgængelighedstekst med respekt for systemets tusindtalsseparatorer. En første kørsel viste korrekte tal, men testen forventede uformaterede heltal. Rendering afventer desuden et minimum af faktisk farvede punktpixels i viewporten på både mørkt og lyst lærred; alene tilstedeværelsen af et view godkender ikke geometrivisningen.
+
 Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, roterede fotos, kamera/LiDAR-kalibrering, skarphed/eksponering på forskellige genstande, dybdefiltre ved kanter og tynde overflader, batteri/varme, termiske callbacks og framerate. Der er ingen signeret installation eller fysisk Safari-/iPhone-test påstået. Fotogrammetri, objektisolering og detaljeret video/foto-til-model er separate udestående projektdele.
 
 ## Primære API-kilder
