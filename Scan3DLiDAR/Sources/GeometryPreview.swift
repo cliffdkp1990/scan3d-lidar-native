@@ -134,27 +134,23 @@ struct GeometryPreview {
         return GeometryPreview(vertices: vertices, triangles: triangles, sizeMeters: size)
     }
 
-    /// Bounded display mesh: measured points become small octahedra, not a reconstructed surface.
-    func displayMesh() throws -> (positions: [SIMD3<Float>], indices: [UInt32], displayedPoints: Int) {
+    /// Normalized display data. Points stay points; no artificial surface is reconstructed.
+    func displayGeometry() throws -> (positions: [SIMD3<Float>], indices: [UInt32], displayedPoints: Int) {
         let lower = vertices.reduce(vertices[0]) { SIMD3(min($0.x,$1.x), min($0.y,$1.y), min($0.z,$1.z)) }
         let upper = vertices.reduce(vertices[0]) { SIMD3(max($0.x,$1.x), max($0.y,$1.y), max($0.z,$1.z)) }
         let center = (lower + upper) / 2
         let factor = 2 / max(sizeMeters.x, sizeMeters.y, sizeMeters.z)
         if !isPointCloud { return (vertices.map { ($0 - center) * factor }, triangles, 0) }
         let count = min(vertices.count, Self.maxDisplayPoints)
-        let offsets: [SIMD3<Float>] = [[0.006,0,0],[-0.006,0,0],[0,0.006,0],[0,-0.006,0],[0,0,0.006],[0,0,-0.006]]
-        let faces: [UInt32] = [0,2,4, 2,1,4, 1,3,4, 3,0,4, 2,0,5, 1,2,5, 3,1,5, 0,3,5]
-        var positions: [SIMD3<Float>] = [], indices: [UInt32] = []
-        positions.reserveCapacity(count * 6); indices.reserveCapacity(count * faces.count)
+        var positions: [SIMD3<Float>] = []
+        positions.reserveCapacity(count)
         for i in 0..<count {
             if i % 1024 == 0 { try Task.checkCancellation() }
-            let point = (vertices[i * vertices.count / count] - center) * factor
-            let base = UInt32(positions.count)
-            positions.append(contentsOf: offsets.map { point + $0 })
-            indices.append(contentsOf: faces.map { base + $0 })
+            positions.append((vertices[i * vertices.count / count] - center) * factor)
         }
-        return (positions, indices, count)
+        return (positions, [], count)
     }
+
 }
 
 struct GeometryCamera {

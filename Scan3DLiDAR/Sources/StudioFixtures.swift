@@ -21,7 +21,8 @@ enum StudioFixtures {
         var vertices:[CloudVertex]=[], triangles:[(Int,Int,Int)]=[]
         for (y,radius) in profile { for sector in 0..<sectors {
             let angle=Float(sector)*2 * .pi/Float(sectors)
-            vertices.append(CloudVertex(x:radius*cos(angle),y:y,z:radius*sin(angle)))
+            // Elliptical synthetic object makes yaw visible in compositor-level UI tests.
+            vertices.append(CloudVertex(x:1.2*radius*cos(angle),y:y,z:0.8*radius*sin(angle)))
         }}
         for row in 0..<(profile.count-1) { for sector in 0..<sectors {
             let a=row*sectors+sector, b=row*sectors+(sector+1)%sectors

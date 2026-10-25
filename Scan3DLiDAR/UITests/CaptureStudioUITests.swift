@@ -40,14 +40,23 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertLessThanOrEqual(frame.maxX,window.maxX+1,file:file,line:line)
     }
     private func reveal(_ element:XCUIElement,in app:XCUIApplication) {
-        for _ in 0..<10 {
-            let frame=element.frame, window=app.windows.firstMatch.frame
-            if frame.height>0 && frame.minY>=window.minY+30 && frame.maxY<=window.maxY-30 { return }
-            app.swipeUp()
+        let scroll = app.scrollViews["studio-scroll"]
+        XCTAssertTrue(scroll.exists)
+        for _ in 0..<14 {
+            let frame = element.frame, window = app.windows.firstMatch.frame
+            let visible = scroll.frame.intersection(window).insetBy(dx: 0, dy: 36)
+            if frame.height > 0 && frame.minY >= visible.minY && frame.maxY <= visible.maxY { return }
+            let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+            let startY = visible.midY
+            // Physical drag towards the target, including recovery after overshooting.
+            let delta = max(-visible.height*0.35, min(visible.height*0.35, frame.midY-visible.midY))
+            let start = origin.withOffset(CGVector(dx: visible.midX-window.minX, dy: startY-window.minY))
+            let end = origin.withOffset(CGVector(dx: visible.midX-window.minX, dy: startY-delta-window.minY))
+            start.press(forDuration: 0.15, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
         }
         XCTFail("Control could not be reached by vertical scrolling: \(element.identifier)")
     }
-    private func viewportPixels(_ viewport:XCUIElement,in app:XCUIApplication)->(background:Double,teal:Int,objectHeight:Int)? {
+    private func viewportPixels(_ viewport:XCUIElement,in app:XCUIApplication)->(background:Double,teal:Int,objectHeight:Int,objectWidth:Int)? {
         guard viewport.exists else { return nil }
         let frame=viewport.frame,screen=app.windows.firstMatch.frame
         guard frame.width>=100,frame.height>=100,screen.contains(frame) else { return nil }
@@ -70,17 +79,18 @@ final class CaptureStudioUITests:XCTestCase {
             context.draw(region,in:CGRect(x:0,y:0,width:side,height:side));return true
         }
         guard drawn else { return nil }
-        var luminance:[Int]=[],teal=0,minY=side,maxY = -1
+        var luminance:[Int]=[],teal=0,minY=side,maxY = -1,minX=side,maxX = -1
         for index in stride(from:0,to:pixels.count,by:4) {
             let r=Int(pixels[index]), g=Int(pixels[index+1]), b=Int(pixels[index+2])
             luminance.append((r+g+b)/3)
             if g-r>20 && b-r>20 {
                 teal += 1
                 let y=index/(side*4);minY=min(minY,y);maxY=max(maxY,y)
+                let x=(index/4)%side;minX=min(minX,x);maxX=max(maxX,x)
             }
         }
         luminance.sort()
-        return (Double(luminance[luminance.count/2]),teal,max(0,maxY-minY+1))
+        return (Double(luminance[luminance.count/2]),teal,max(0,maxY-minY+1),max(0,maxX-minX+1))
     }
     func testActualDensePointCloud()throws {
         let app=launch(dense:true)
@@ -150,7 +160,7 @@ final class CaptureStudioUITests:XCTestCase {
         let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport,in:app)?.teal ?? 0)>50 },object:nil)
         wait(for:[drawn],timeout:20)
         let initialHeight=try XCTUnwrap(viewportPixels(viewport,in:app)).objectHeight
-        screenshot("actual-realitykit-viewer-default-SYNTHETIC")
+        screenshot("actual-metal-viewer-default-SYNTHETIC")
         let before=viewport.value as? String
         app.buttons["Zoom ind"].tap()
         XCTAssertNotEqual(viewport.value as? String,before)
@@ -158,21 +168,28 @@ final class CaptureStudioUITests:XCTestCase {
             Double(self.viewportPixels(viewport,in:app)?.objectHeight ?? 0)>Double(initialHeight)*1.1
         },object:nil)
         let enlargedResult=XCTWaiter.wait(for:[enlarged],timeout:20)
-        screenshot("actual-realitykit-viewer-zoom-SYNTHETIC")
+        screenshot("actual-metal-viewer-zoom-SYNTHETIC")
         XCTAssertEqual(enlargedResult,.completed,"Zoom must enlarge the rendered geometry, not just its accessibility value")
         app.buttons["Drej modellen til højre"].tap()
-        screenshot("actual-realitykit-viewer-SYNTHETIC")
+        screenshot("actual-metal-viewer-SYNTHETIC")
         app.buttons["Nulstil 3D-visning"].tap()
         XCTAssertTrue((viewport.value as? String)?.contains("1.0") == true || (viewport.value as? String)?.contains("1,0") == true)
         let reset=viewport.value as? String
         viewport.pinch(withScale:0.8,velocity:-0.5)
         XCTAssertNotEqual(viewport.value as? String,reset)
         let pinched=viewport.value as? String
+        let beforeDragWidth=try XCTUnwrap(viewportPixels(viewport,in:app)).objectWidth
         print("VIEWPORT_BEFORE_SWIPE frame=\(viewport.frame) value=\(String(describing:pinched))")
         moveInsideViewport(viewport,in:app,fast:true)
         let debug=XCTAttachment(string:app.debugDescription);debug.name="native-hierarchy-after-swipe";debug.lifetime = .keepAlways;add(debug)
         let swiped=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != pinched },object:nil)
         wait(for:[swiped],timeout:3)
+        let visiblyRotated=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in
+            guard let pixels=self.viewportPixels(viewport,in:app) else { return false }
+            return pixels.teal>50 && abs(pixels.objectWidth-beforeDragWidth)>max(3,beforeDragWidth/12)
+        },object:nil)
+        wait(for:[visiblyRotated],timeout:20)
+        screenshot("actual-metal-viewer-dragged-SYNTHETIC")
         let afterSwipe=viewport.value as? String
         moveInsideViewport(viewport,in:app,fast:false)
         let dragged=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != afterSwipe },object:nil)
@@ -183,7 +200,7 @@ final class CaptureStudioUITests:XCTestCase {
             return pixels.teal>50 && abs(pixels.objectHeight-initialHeight)<=4
         },object:nil)
         wait(for:[resetPixels],timeout:20)
-        screenshot("actual-realitykit-viewer-reset-SYNTHETIC")
+        screenshot("actual-metal-viewer-reset-SYNTHETIC")
     }
     func testDarkImageGuidance()throws {
         let app=launch(dark:true)

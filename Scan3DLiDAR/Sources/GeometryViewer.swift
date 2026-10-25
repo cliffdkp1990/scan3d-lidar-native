@@ -1,8 +1,8 @@
 import CryptoKit
-import Combine
-import RealityKit
+import MetalKit
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /// Isolated Simulator diagnostics; never records user captures or runs in Release.
 #if DEBUG
@@ -140,7 +140,7 @@ struct StoredGeometryViewer: View {
                 }
                 try Task.checkCancellation()
                 let geometry = try GeometryPreview.parse(data, extension: url.pathExtension)
-                let mesh = try geometry.displayMesh()
+                let mesh = try geometry.displayGeometry()
                 return PreparedGeometry(geometry: geometry, positions: mesh.positions, indices: mesh.indices,
                     displayedPoints: mesh.displayedPoints, url: url)
             }
@@ -157,86 +157,89 @@ struct StoredGeometryViewer: View {
     }
 }
 
-/// Keep the finger's initial position even when recognition is delayed until the last move.
-/// Simulator traces exposed a quick gesture with only .began/.ended and zero UIKit translation.
-private final class GeometryPanGesture:UIPanGestureRecognizer {
-    private var trackedTouch:UITouch?
-    private var previousPoint:CGPoint?
-    private var latestPoint:CGPoint?
-    override func touchesBegan(_ touches:Set<UITouch>,with event:UIEvent) {
-        if trackedTouch == nil,let touch=touches.first {
-            trackedTouch=touch
-            let point=touch.location(in:view)
-            previousPoint=point;latestPoint=point
-            geometryTrace("pan touch origin=\(point)")
+/// A continuous one-finger orbit recognizer. Preserve the initial-to-final delta even
+/// when UIKit coalesces a short drag into its last event; two fingers belong to pinch.
+private final class GeometryPanGesture: UIGestureRecognizer {
+    private var trackedTouch: UITouch?
+    private var previousPoint: CGPoint?
+    private var latestPoint: CGPoint?
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard trackedTouch == nil, touches.count == 1, let touch = touches.first else {
+            state = state == .possible ? .failed : .cancelled; return
         }
-        super.touchesBegan(touches,with:event)
+        trackedTouch = touch
+        previousPoint = touch.location(in: view); latestPoint = previousPoint
     }
-    override func touchesMoved(_ touches:Set<UITouch>,with event:UIEvent) {
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         updatePoint(touches)
-        super.touchesMoved(touches,with:event)
+        guard let previousPoint, let latestPoint else { return }
+        if state == .possible {
+            if hypot(latestPoint.x-previousPoint.x, latestPoint.y-previousPoint.y) >= 6 { state = .began }
+        } else if state == .began || state == .changed { state = .changed }
     }
-    override func touchesEnded(_ touches:Set<UITouch>,with event:UIEvent) {
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         updatePoint(touches)
-        super.touchesEnded(touches,with:event)
+        if state == .possible, let previousPoint, let latestPoint,
+           hypot(latestPoint.x-previousPoint.x, latestPoint.y-previousPoint.y) >= 6 { state = .began }
+        state = state == .began || state == .changed ? .ended : .failed
     }
-    private func updatePoint(_ touches:Set<UITouch>) {
-        if let touch=trackedTouch,touches.contains(touch) { latestPoint=touch.location(in:view) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = state == .possible ? .failed : .cancelled
     }
-    func consumeDelta()->CGPoint {
-        guard let previousPoint,let latestPoint else { return .zero }
-        self.previousPoint=latestPoint
-        return CGPoint(x:latestPoint.x-previousPoint.x,y:latestPoint.y-previousPoint.y)
+    private func updatePoint(_ touches: Set<UITouch>) {
+        if let touch = trackedTouch, touches.contains(touch) { latestPoint = touch.location(in: view) }
+    }
+    func consumeDelta() -> CGPoint {
+        guard let previousPoint, let latestPoint else { return .zero }
+        self.previousPoint = latestPoint
+        return CGPoint(x: latestPoint.x-previousPoint.x, y: latestPoint.y-previousPoint.y)
     }
     override func reset() {
-        super.reset()
-        trackedTouch=nil;previousPoint=nil;latestPoint=nil
+        super.reset(); trackedTouch = nil; previousPoint = nil; latestPoint = nil
     }
 }
 
 /// Gestures beginning inside the model operate on it; scroll outside it to move the page.
-private final class GeometryRenderView:UIView {
-    let renderer=ARView(frame:.zero,cameraMode:.nonAR,automaticallyConfigureSession:false)
-    var modelGestures:[UIGestureRecognizer]=[] { didSet { prioritizeModelGestures() } }
-    private weak var coordinatedScrollView:UIScrollView?
-    override init(frame:CGRect) {
-        super.init(frame:frame)
-        // Keep the live Metal view and its rounded clipping within the same UIKit hierarchy.
-        clipsToBounds=true;layer.cornerRadius=20
-        renderer.isUserInteractionEnabled=false
-        renderer.frame=bounds
-        renderer.autoresizingMask=[.flexibleWidth,.flexibleHeight]
-        addSubview(renderer)
-        isMultipleTouchEnabled=true
+private final class GeometryRenderView: UIView {
+    let renderer = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
+    var modelGestures: [UIGestureRecognizer] = [] { didSet { prioritizeModelGestures() } }
+    private weak var coordinatedScrollView: UIScrollView?
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true; layer.cornerRadius = 20
+        renderer.isUserInteractionEnabled = false
+        renderer.frame = bounds
+        renderer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        renderer.colorPixelFormat = .bgra8Unorm_srgb
+        renderer.depthStencilPixelFormat = .depth32Float
+        renderer.sampleCount = renderer.device?.supportsTextureSampleCount(4) == true ? 4 : 1
+        renderer.isPaused = true; renderer.enableSetNeedsDisplay = true
+        renderer.framebufferOnly = true
+        addSubview(renderer); isMultipleTouchEnabled = true
     }
-    required init?(coder:NSCoder) { fatalError("GeometryRenderView is created programmatically") }
+    required init?(coder: NSCoder) { fatalError("GeometryRenderView is created programmatically") }
     override func didMoveToWindow() {
-        super.didMoveToWindow()
-        prioritizeModelGestures()
+        super.didMoveToWindow(); prioritizeModelGestures(); renderer.setNeedsDisplay()
     }
-    override func didMoveToSuperview() {
-        super.didMoveToSuperview()
-        prioritizeModelGestures()
-    }
+    override func didMoveToSuperview() { super.didMoveToSuperview(); prioritizeModelGestures() }
     override func layoutSubviews() {
-        super.layoutSubviews()
-        renderer.frame=bounds
-        prioritizeModelGestures()
+        super.layoutSubviews(); renderer.frame = bounds
+        prioritizeModelGestures(); renderer.setNeedsDisplay()
     }
     func prioritizeModelGestures() {
         guard !modelGestures.isEmpty else { return }
-        var ancestor=superview
-        while let current=ancestor {
-            if let scroll=current as? UIScrollView {
+        var ancestor = superview
+        while let current = ancestor {
+            if let scroll = current as? UIScrollView {
                 if coordinatedScrollView !== scroll {
-                    for gesture in modelGestures { scroll.panGestureRecognizer.require(toFail:gesture) }
-                    coordinatedScrollView=scroll
+                    for gesture in modelGestures { scroll.panGestureRecognizer.require(toFail: gesture) }
+                    coordinatedScrollView = scroll
                 }
                 return
             }
-            ancestor=current.superview
+            ancestor = current.superview
         }
-        coordinatedScrollView=nil
+        coordinatedScrollView = nil
     }
 }
 
@@ -248,120 +251,55 @@ private struct GeometryViewport: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> GeometryRenderView {
-        let surface=GeometryRenderView(frame:.zero)
-        let view=surface.renderer
-        view.renderOptions=[.disableCameraGrain,.disableMotionBlur,.disableDepthOfField]
+        let surface = GeometryRenderView(frame: .zero)
         let coordinator = context.coordinator
-        geometryTrace("make view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(coordinator)) inputLight=\(lightBackground) ownerLight=\(coordinator.owner.lightBackground)")
-        let anchor = AnchorEntity(world: .zero)
         do {
-            var descriptor = MeshDescriptor(name: "Scan3D stored geometry")
-            descriptor.positions = MeshBuffers.Positions(prepared.positions)
-            descriptor.primitives = .triangles(prepared.indices)
-            let mesh = try MeshResource.generate(from: [descriptor])
-            let model=ModelEntity(mesh:mesh,materials:[])
-            coordinator.modelEntity=model
-            coordinator.updateAppearance(view)
-            anchor.addChild(model)
-            let light = DirectionalLight()
-            light.light.intensity = 2500
-            light.look(at: .zero, from: [2,3,4], relativeTo: nil)
-            anchor.addChild(light)
-            let fill = DirectionalLight()
-            fill.light.intensity = 1200
-            fill.look(at: .zero, from: [-3,1,-2], relativeTo: nil)
-            anchor.addChild(fill)
-            coordinator.cameraEntity.camera.fieldOfViewInDegrees = 50
-            coordinator.cameraEntity.camera.near = 0.01
-            coordinator.cameraEntity.camera.far = 50
-            anchor.addChild(coordinator.cameraEntity)
-            view.scene.addAnchor(anchor)
-            coordinator.updateCamera()
-            coordinator.renderSubscription=view.scene.subscribe(to:SceneEvents.Update.self) { [weak coordinator,weak view] _ in
-                guard let coordinator,let view else { return }
-                coordinator.frameUpdated(view)
-            }
+            let renderer = try GeometryMetalRenderer(view: surface.renderer,
+                positions: prepared.positions, indices: prepared.indices)
+            coordinator.renderer = renderer
+            surface.renderer.delegate = renderer
+            coordinator.surface = surface
+            coordinator.updateRenderer()
         } catch {
             let message = error.localizedDescription
             DispatchQueue.main.async { onFailure(message) }
         }
-        let pan=GeometryPanGesture(target:coordinator,action:#selector(Coordinator.pan(_:)))
-        pan.maximumNumberOfTouches=1
-        let pinch=UIPinchGestureRecognizer(target:coordinator,action:#selector(Coordinator.pinch(_:)))
-        surface.modelGestures=[pan,pinch]
-        surface.addGestureRecognizer(pan);surface.addGestureRecognizer(pinch)
+        let pan = GeometryPanGesture(target: coordinator, action: #selector(Coordinator.pan(_:)))
+        let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.pinch(_:)))
+        surface.modelGestures = [pan, pinch]
+        surface.addGestureRecognizer(pan); surface.addGestureRecognizer(pinch)
         return surface
     }
-    func updateUIView(_ surface:GeometryRenderView, context: Context) {
-        let view=surface.renderer
-        geometryTrace("update view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(context.coordinator)) light=\(lightBackground) yaw=\(camera.yaw) distance=\(camera.distance)")
+    func updateUIView(_ surface: GeometryRenderView, context: Context) {
         context.coordinator.owner = self
-        context.coordinator.renderNeedsUpdate=true
-        context.coordinator.updateCamera()
-        context.coordinator.updateAppearance(view)
+        context.coordinator.updateRenderer()
         surface.prioritizeModelGestures()
     }
-    static func dismantleUIView(_ surface:GeometryRenderView, coordinator: Coordinator) {
-        let view=surface.renderer
-        geometryTrace("dismantle view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(coordinator))")
-        coordinator.renderSubscription?.cancel();coordinator.renderSubscription=nil
-        view.scene.anchors.removeAll()
+    static func dismantleUIView(_ surface: GeometryRenderView, coordinator: Coordinator) {
+        surface.renderer.delegate = nil; coordinator.renderer = nil
+        surface.renderer.releaseDrawables()
     }
-
     final class Coordinator: NSObject {
         var owner: GeometryViewport
-        let cameraEntity = PerspectiveCamera()
-        var modelEntity:ModelEntity?
-        var renderSubscription:(any Cancellable)?
-        var renderNeedsUpdate=true
-        private var frameCount=0
-        private var appliedLightBackground:Bool?
+        var renderer: GeometryMetalRenderer?
+        weak var surface: GeometryRenderView?
         init(_ owner: GeometryViewport) { self.owner = owner }
-        func updateCamera() {
-            cameraEntity.look(at: .zero, from: owner.camera.position, relativeTo: nil)
-        }
-        func frameUpdated(_ view:ARView) {
-            frameCount += 1
-            if renderNeedsUpdate {
-                // Apply state at the engine's frame boundary as well as the UIKit update.
-                updateCamera();updateAppearance(view,force:true);renderNeedsUpdate=false
-            }
-            if frameCount==1 || frameCount%600==0 {
-                geometryTrace("render frame=\(frameCount) attached=\(view.window != nil) active=\(modelEntity?.isActive ?? false) bounds=\(view.bounds)")
-            }
-        }
-        func updateAppearance(_ view:ARView,force:Bool=false) {
-            geometryTrace("appearance view=\(ObjectIdentifier(view)) light=\(owner.lightBackground) applied=\(String(describing:appliedLightBackground))")
-            guard force || appliedLightBackground != owner.lightBackground else { return }
-            appliedLightBackground=owner.lightBackground
-            // Fixed canvas colors honor this user choice even when the app chrome uses dark appearance.
-            view.environment.background = .color(owner.lightBackground ? UIColor(white:0.94,alpha:1):UIColor.black)
-            let tint=owner.lightBackground ? UIColor(red:0.04,green:0.35,blue:0.41,alpha:1):UIColor.systemTeal
-            if owner.prepared.geometry.isPointCloud {
-                modelEntity?.model?.materials=[UnlitMaterial(color:tint)]
-            } else {
-                var material=PhysicallyBasedMaterial()
-                material.baseColor = .init(tint:tint)
-                material.roughness = .init(floatLiteral:0.8)
-                material.faceCulling = .none
-                modelEntity?.model?.materials=[material]
-            }
+        func updateRenderer() {
+            renderer?.camera = owner.camera
+            renderer?.lightBackground = owner.lightBackground
+            surface?.renderer.setNeedsDisplay()
         }
         @objc func pan(_ gesture: GeometryPanGesture) {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
-            let delta=gesture.consumeDelta()
-            geometryTrace("pan state=\(gesture.state.rawValue) delta=\(delta) beforeYaw=\(owner.camera.yaw)")
-            owner.camera.rotate(horizontal: -Float(delta.x) * 0.008, vertical: Float(delta.y) * 0.008)
-            renderNeedsUpdate=true
-            updateCamera()
-            geometryTrace("pan afterYaw=\(owner.camera.yaw)")
+            let delta = gesture.consumeDelta()
+            geometryTrace("orbit state=\(gesture.state.rawValue) delta=\(delta)")
+            owner.camera.rotate(horizontal: -Float(delta.x)*0.008, vertical: Float(delta.y)*0.008)
+            updateRenderer()
         }
         @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
-            owner.camera.zoom(by: Float(gesture.scale))
-            renderNeedsUpdate=true
-            gesture.scale = 1
-            updateCamera()
+            owner.camera.zoom(by: Float(gesture.scale)); gesture.scale = 1
+            updateRenderer()
         }
     }
 }
