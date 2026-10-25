@@ -25,6 +25,8 @@ Ved tilgængelighedens store tekststørrelser flyttes kameraets fakta uden for b
 
 En separat iOS-test sender rigtige syntetiske CoreVideo-buffere gennem CameraImageQuality og CoreImage/ImageIO. Alle fire grænsefladeretninger kontrolleres for JPEG-afkodning, billedmål, sRGB og allerede orienterede pixels. Det dokumenterer encoding-pathen, ikke sensorens fysiske retning. CI bygger både Debug og Release; testmotivets aktivering er ikke tilgængelig i Release. Se den præcise revisions workflow-resultat for faktisk udfald.
 
+En gentaget native test fandt en udeblevet drejning ved hurtigt swipe i resultatvieweren. Modelgestus har nu prioritet over den omgivende rulning, når berøringen starter i viewporten; rulning uden for modellen bruges til at flytte siden. Den sidste gestusdelta behandles også ved ended. Testen bevarer swipe-kontrollen og tilføjer et træk mellem to punkter inde i viewporten. Simulatorens syntetiske resultat får desuden sin egen synlige testdataetiket.
+
 Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, roterede fotos, kamera/LiDAR-kalibrering, skarphed/eksponering på forskellige genstande, dybdefiltre ved kanter og tynde overflader, batteri/varme, termiske callbacks og framerate. Der er ingen signeret installation eller fysisk Safari-/iPhone-test påstået. Fotogrammetri, objektisolering og detaljeret video/foto-til-model er separate udestående projektdele.
 
 ## Primære API-kilder

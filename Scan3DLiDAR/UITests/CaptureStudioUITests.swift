@@ -68,7 +68,13 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertNotEqual(viewport.value as? String,reset)
         let pinched=viewport.value as? String
         viewport.swipeRight()
-        XCTAssertNotEqual(viewport.value as? String,pinched)
+        let swiped=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != pinched },object:nil)
+        wait(for:[swiped],timeout:3)
+        let afterSwipe=viewport.value as? String
+        let dragStart=viewport.coordinate(withNormalizedOffset:CGVector(dx:0.35,dy:0.5))
+        let dragEnd=viewport.coordinate(withNormalizedOffset:CGVector(dx:0.7,dy:0.5))
+        dragStart.press(forDuration:0.2,thenDragTo:dragEnd)
+        XCTAssertNotEqual(viewport.value as? String,afterSwipe)
         app.buttons["Nulstil 3D-visning"].tap()
         screenshot("actual-realitykit-viewer-reset-SYNTHETIC")
     }

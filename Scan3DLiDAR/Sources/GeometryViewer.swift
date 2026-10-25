@@ -26,6 +26,11 @@ struct StoredGeometryViewer: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let prepared, renderFailure == nil {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.environment["SCAN3D_STUDIO_FIXTURE"] == "1" {
+                        Label("SIMULATOR — TESTDATA",systemImage:"testtube.2").font(.caption.bold()).foregroundStyle(.orange)
+                    }
+                    #endif
                     GeometryViewport(prepared: prepared, camera: $camera, lightBackground: lightBackground,
                         onFailure: { renderFailure = $0 })
                         .frame(height: 340)
@@ -106,6 +111,22 @@ struct StoredGeometryViewer: View {
     }
 }
 
+/// Gestures beginning inside the model operate on it; scroll outside it to move the page.
+private final class GeometryARView:ARView {
+    var modelGestures:[UIGestureRecognizer]=[]
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        var ancestor=superview
+        while let current=ancestor {
+            if let scroll=current as? UIScrollView {
+                for gesture in modelGestures { scroll.panGestureRecognizer.require(toFail:gesture) }
+                break
+            }
+            ancestor=current.superview
+        }
+    }
+}
+
 private struct GeometryViewport: UIViewRepresentable {
     let prepared: PreparedGeometry
     @Binding var camera: GeometryCamera
@@ -114,7 +135,7 @@ private struct GeometryViewport: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> ARView {
-        let view = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+        let view = GeometryARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
         view.environment.background = .color(lightBackground ? .systemGray6 : .black)
         view.accessibilityLabel = "3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder."
         view.isAccessibilityElement = true
@@ -153,8 +174,11 @@ private struct GeometryViewport: UIViewRepresentable {
             let message = error.localizedDescription
             DispatchQueue.main.async { onFailure(message) }
         }
-        view.addGestureRecognizer(UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.pan(_:))))
-        view.addGestureRecognizer(UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.pinch(_:))))
+        let pan=UIPanGestureRecognizer(target:coordinator,action:#selector(Coordinator.pan(_:)))
+        pan.maximumNumberOfTouches=1
+        let pinch=UIPinchGestureRecognizer(target:coordinator,action:#selector(Coordinator.pinch(_:)))
+        view.modelGestures=[pan,pinch]
+        view.addGestureRecognizer(pan);view.addGestureRecognizer(pinch)
         return view
     }
     func updateUIView(_ view: ARView, context: Context) {
@@ -172,14 +196,14 @@ private struct GeometryViewport: UIViewRepresentable {
         init(_ owner: GeometryViewport) { self.owner = owner }
         func updateCamera() { cameraEntity.look(at: .zero, from: owner.camera.position, relativeTo: nil) }
         @objc func pan(_ gesture: UIPanGestureRecognizer) {
-            guard gesture.state == .changed else { return }
+            guard gesture.state == .changed || gesture.state == .ended else { return }
             let delta = gesture.translation(in: gesture.view)
             owner.camera.rotate(horizontal: -Float(delta.x) * 0.008, vertical: Float(delta.y) * 0.008)
             gesture.setTranslation(.zero, in: gesture.view)
             updateCamera()
         }
         @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
-            guard gesture.state == .changed else { return }
+            guard gesture.state == .changed || gesture.state == .ended else { return }
             owner.camera.zoom(by: Float(gesture.scale))
             gesture.scale = 1
             updateCamera()
