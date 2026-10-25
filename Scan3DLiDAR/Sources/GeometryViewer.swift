@@ -163,6 +163,7 @@ private final class GeometryPanGesture:UIPanGestureRecognizer {
     private var trackedTouch:UITouch?
     private var previousPoint:CGPoint?
     private var latestPoint:CGPoint?
+    private var previousTranslation:CGPoint = .zero
     override func touchesBegan(_ touches:Set<UITouch>,with event:UIEvent) {
         if trackedTouch == nil,let touch=touches.first {
             trackedTouch=touch
@@ -184,13 +185,22 @@ private final class GeometryPanGesture:UIPanGestureRecognizer {
         if let touch=trackedTouch,touches.contains(touch) { latestPoint=touch.location(in:view) }
     }
     func consumeDelta()->CGPoint {
-        guard let previousPoint,let latestPoint else { return .zero }
-        self.previousPoint=latestPoint
-        return CGPoint(x:latestPoint.x-previousPoint.x,y:latestPoint.y-previousPoint.y)
+        // Quick simulator/device swipes can be recognized only at .ended.
+        // Prefer the touch displacement, but fall back to UIKit's cumulative translation.
+        let touchDelta:CGPoint
+        if let previousPoint,let latestPoint {
+            touchDelta=CGPoint(x:latestPoint.x-previousPoint.x,y:latestPoint.y-previousPoint.y)
+            self.previousPoint=latestPoint
+        } else { touchDelta = .zero }
+        let current=translation(in:view)
+        let translationDelta=CGPoint(x:current.x-previousTranslation.x,y:current.y-previousTranslation.y)
+        previousTranslation=current
+        if abs(touchDelta.x)+abs(touchDelta.y)>0.5 { return touchDelta }
+        return translationDelta
     }
     override func reset() {
         super.reset()
-        trackedTouch=nil;previousPoint=nil;latestPoint=nil
+        trackedTouch=nil;previousPoint=nil;latestPoint=nil;previousTranslation = .zero
     }
 }
 
@@ -203,6 +213,7 @@ private final class GeometryRenderView:UIView {
         super.init(frame:frame)
         // Keep the live Metal view and its rounded clipping within the same UIKit hierarchy.
         clipsToBounds=true;layer.cornerRadius=20
+        backgroundColor = .black
         renderer.isUserInteractionEnabled=false
         renderer.frame=bounds
         renderer.autoresizingMask=[.flexibleWidth,.flexibleHeight]
@@ -335,7 +346,12 @@ private struct GeometryViewport: UIViewRepresentable {
             guard force || appliedLightBackground != owner.lightBackground else { return }
             appliedLightBackground=owner.lightBackground
             // Fixed canvas colors honor this user choice even when the app chrome uses dark appearance.
-            view.environment.background = .color(owner.lightBackground ? UIColor(white:0.94,alpha:1):UIColor.black)
+            let canvas=owner.lightBackground ? UIColor(white:0.94,alpha:1) : UIColor.black
+            view.environment.background = .color(canvas)
+            // Mirror the chosen canvas behind the Metal layer so a non-opaque
+            // RealityKit frame cannot briefly reveal the stale dark background.
+            view.backgroundColor = canvas
+            view.superview?.backgroundColor = canvas
             let tint=owner.lightBackground ? UIColor(red:0.04,green:0.35,blue:0.41,alpha:1):UIColor.systemTeal
             if owner.prepared.geometry.isPointCloud {
                 modelEntity?.model?.materials=[UnlitMaterial(color:tint)]
