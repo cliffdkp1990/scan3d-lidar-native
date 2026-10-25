@@ -18,7 +18,7 @@ The project manifest journals a pending clip before recording. Only a finalized,
 
 CI additionally writes synthetic frames through the actual AVAssetWriter pipeline and decodes every resulting frame. It tests timestamps, all four track rotations, no audio, resolution bounds, stop idempotence, low-space finalization, an interruption stop reason, empty/corrupt files, publication failure and recovery. These are real codec/filesystem tests on macOS, not recordings of a physical iPhone or an interactive Simulator UI test.
 
-The source lives directly in `Scan3DLiDAR/`. The workflow compiles that source for both Simulator and unsigned iPhone Release; it does not download an external source ZIP. See GitHub Actions and the pull request checks for the current build result. CI runs for pull requests and pushes to main, avoiding duplicate branch/PR builds. Physical iPhone installation, signing and LiDAR acceptance tests remain outstanding.
+The source lives directly in `Scan3DLiDAR/`. CI selects stable Xcode 26.6 and an iOS 26.5 Simulator on macOS 26, records the actual toolchain/SDK/runtime in its evidence, and compiles both Simulator and unsigned iPhone Release. It does not download an external source ZIP. See GitHub Actions and the pull request checks for the current build result. CI runs for pull requests and pushes to main, avoiding duplicate branch/PR builds. Physical iPhone installation, signing and LiDAR acceptance tests remain outstanding.
 
 For Mac: install Xcode and XcodeGen, run `xcodegen generate` inside `Scan3DLiDAR`, then open the generated Xcode project. Sign with your own Apple team to run on a physical supported device. An unsigned Simulator build does not install on an iPhone.
 

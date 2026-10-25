@@ -17,6 +17,8 @@ Mål: en tydeligere optageoplevelse, bedre faktiske fotos og mere stabil målt L
 
 ## Faktisk validering og resterende arbejde
 
+Workflowet vælger stabil Xcode 26.6 og en iOS 26.5 iPhone-Simulator på macOS 26. Den præcise Xcode-version, device-SDK og Simulator-runtime gemmes i `scan3d-environment.json` sammen med den konkrete revisions evidens. Opsamlingen afviser et ældre eller manglende miljøgrundlag. Simulatoren startes tidligt; det er stadig en syntetisk runtime-prøve. App Store Connect kræver Xcode 26 eller nyere siden 28. april 2026. Signeret distribution er ikke udført.
+
 CI skal køre eksisterende tests, nye luminans-/CoreVideo-/dybde-/bevægelses-/token-tests og kompilere appen. Native UI-tests starter appen med tydeligt mærket syntetisk testmotiv. Testprojektet bruger en isoleret midlertidig mappe; det har ingen adgang til brugerens normale projektmappe. Fixture-koden er DEBUG-betinget og aktiveres kun af testmiljøet.
 
 UI-forløbene omfatter portræt, landskab, stor tekst med scroll til optageknappen, mørk-billede-vejledning, tilladelses-/afbrydelsesbeskeder, projektbibliotek og den rigtige RealityKit-resultatviewer med syntetisk geometri, drej, zoom, knib, træk og reset. Kontrollerne undersøger også vandrette skærmgrænser og den faktiske landskabsrotation. Den første visuelle gennemgang fandt ældre iPhone-letterboxing samt afskæring ved landskab/stor tekst; launch-screen, understøttede retninger, breddebegrænsning og fleksibel header er rettet. Resultater og screenshots skal inspiceres, før de påstås bestået. En Simulator aktiverer ikke ægte LiDAR.
@@ -49,3 +51,5 @@ Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, rote
 - https://developer.apple.com/documentation/xcode/specifying-your-apps-launch-screen
 - https://developer.apple.com/documentation/arkit/arcamera/intrinsics
 - https://developer.apple.com/documentation/arkit/arcamera/imageresolution
+- https://developer.apple.com/news/upcoming-requirements/?id=04282026a
+- https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md
