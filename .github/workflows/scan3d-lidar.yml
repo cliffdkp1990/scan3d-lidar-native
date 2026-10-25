@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode 26.6 and prepare Simulator
+        id: prepare_environment
         shell: bash
         run: |
           set -euo pipefail
@@ -68,6 +69,9 @@ jobs:
           swiftc Sources/ProjectStore.swift Sources/VideoTimeline.swift Sources/VideoRecorder.swift Tests/video/main.swift -o "$RUNNER_TEMP/video-tests"
           "$RUNNER_TEMP/video-tests"
       - name: Prepare Xcode project
+        id: prepare_xcode
+        # Native builds must still run when source/codec tests fail.
+        if: ${{ !cancelled() && steps.prepare_environment.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -78,6 +82,8 @@ jobs:
           # Codec source tests finish before Simulator services compete for media/GPU resources.
           xcrun simctl boot "$SCAN3D_SIMULATOR_ID" || true
       - name: Compile unsigned iOS Simulator app
+        id: debug_build
+        if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
@@ -95,6 +101,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Run native camera and model-viewer UI tests
+        if: ${{ !cancelled() && steps.debug_build.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -105,6 +112,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/Scan3DBuild" -resultBundlePath "$RUNNER_TEMP/Scan3D-UI.xcresult" \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/scan3d-ui.log"
       - name: Compile Release without test fixture activation
+        # Do not skip the release compile just because UI tests failed.
+        if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
@@ -113,6 +122,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/Scan3DRelease" CODE_SIGNING_ALLOWED=NO build \
             2>&1 | tee "$RUNNER_TEMP/scan3d-release.log"
       - name: Compile unsigned iOS device app
+        # Independent evidence for the iPhone target; this is NOT signed or installable.
+        if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
