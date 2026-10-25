@@ -119,10 +119,11 @@ for orientation in ScanVideoOrientation.allCases {
             try FileManager.default.createDirectory(at:destination,withIntermediateDirectories:true)
             try FileManager.default.copyItem(at:url,to:destination.appendingPathComponent(url.lastPathComponent))
             let error=reader.error as NSError?
+            let lastTimestamp:Any=previous.isFinite ? (previous as Any):NSNull()
             let report:[String:Any]=["syntheticOnly":true,"orientation":orientation.rawValue,
                 "expectedFrames":details.frames ?? -1,"decodedFrames":count,"readerStatus":reader.status.rawValue,
                 "errorDomain":error?.domain ?? "none","errorCode":error?.code ?? 0,
-                "errorDescription":error?.localizedDescription ?? "none","lastDecodedTimestamp":previous]
+                "errorDescription":error?.localizedDescription ?? "none","lastDecodedTimestamp":lastTimestamp]
             try JSONSerialization.data(withJSONObject:report,options:.prettyPrinted)
                 .write(to:destination.appendingPathComponent("decoder.json"),options:.atomic)
         } catch { print("Could not preserve synthetic codec diagnostic: \(error)") }
