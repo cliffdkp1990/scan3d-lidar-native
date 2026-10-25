@@ -52,6 +52,23 @@ final class CaptureStudioUITests:XCTestCase {
         }
         XCTFail("Control could not be reached by vertical scrolling: \(element.identifier)")
     }
+    /// Never sample Metal pixels while the model is scrolled behind the toolbar.
+    /// Drag from the scroll view's right gutter, outside the model's pan recognizer.
+    private func showViewport(_ viewport:XCUIElement,in app:XCUIApplication) {
+        let scroll=app.scrollViews["geometry-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout:10),"Missing geometry scroll container")
+        let window=app.windows.firstMatch.frame
+        for _ in 0..<10 {
+            let frame=viewport.frame
+            if viewport.exists && viewport.isHittable && frame.width>=100 && frame.height>=100 &&
+                frame.minX>=window.minX && frame.maxX<=window.maxX &&
+                frame.minY>=window.minY+2 && frame.maxY<=window.maxY-2 { return }
+            let start=scroll.coordinate(withNormalizedOffset:CGVector(dx:0.97,dy:0.25))
+            let end=scroll.coordinate(withNormalizedOffset:CGVector(dx:0.97,dy:0.85))
+            start.press(forDuration:0.08,thenDragTo:end)
+        }
+        XCTFail("3D viewport must be entirely visible before checking real rendered pixels")
+    }
     private func viewportPixels(_ viewport:XCUIElement,in app:XCUIApplication)->(background:Double,teal:Int,objectHeight:Int)? {
         guard viewport.exists else { return nil }
         let frame=viewport.frame,screen=app.windows.firstMatch.frame
@@ -101,6 +118,7 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertFalse(app.staticTexts["Kan ikke vise 3D-filen"].exists)
         let viewport=app.descendants(matching:.any).matching(identifier:"geometry-viewport").firstMatch
         XCTAssertTrue(viewport.waitForExistence(timeout:10))
+        showViewport(viewport,in:app)
         let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport,in:app)?.teal ?? 0)>50 },object:nil)
         wait(for:[drawn],timeout:20)
         let darkPixels=try XCTUnwrap(viewportPixels(viewport,in:app))
@@ -117,6 +135,7 @@ final class CaptureStudioUITests:XCTestCase {
         background.tap()
         let switched=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in background.value as? String == "Valgt" },object:nil)
         wait(for:[switched],timeout:10)
+        showViewport(viewport,in:app)
         let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport,in:app)?.background ?? 0)>200 },object:nil)
         let brightResult=XCTWaiter.wait(for:[bright],timeout:20)
         screenshot("actual-point-cloud-light-SYNTHETIC")
@@ -127,6 +146,7 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertGreaterThan(lightPoints,50,"Teal points remain visible on the light canvas")
         print("POINTCLOUD_CANVAS measured dark=\(darkBrightness), light=\(lightBrightness); visible teal pixels dark=\(darkPoints), light=\(lightPoints); synthetic 48000 saved, 20000 displayed")
         app.buttons["geometry-dark-background"].tap()
+        showViewport(viewport,in:app)
         let darkAgain=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport,in:app)?.background ?? 255)<100 },object:nil)
         wait(for:[darkAgain],timeout:10)
     }
@@ -152,6 +172,7 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertFalse(app.staticTexts["Kan ikke vise 3D-filen"].exists)
         let viewport=app.descendants(matching:.any).matching(identifier:"geometry-viewport").firstMatch
         XCTAssertTrue(viewport.waitForExistence(timeout:10))
+        showViewport(viewport,in:app)
         let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport,in:app)?.teal ?? 0)>50 },object:nil)
         wait(for:[drawn],timeout:20)
         let initialHeight=try XCTUnwrap(viewportPixels(viewport,in:app)).objectHeight
@@ -159,6 +180,7 @@ final class CaptureStudioUITests:XCTestCase {
         let before=viewport.value as? String
         app.buttons["Zoom ind"].tap()
         XCTAssertNotEqual(viewport.value as? String,before)
+        showViewport(viewport,in:app)
         let enlarged=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in
             Double(self.viewportPixels(viewport,in:app)?.objectHeight ?? 0)>Double(initialHeight)*1.1
         },object:nil)
@@ -168,6 +190,7 @@ final class CaptureStudioUITests:XCTestCase {
         app.buttons["Drej modellen til højre"].tap()
         screenshot("actual-realitykit-viewer-SYNTHETIC")
         app.buttons["Nulstil 3D-visning"].tap()
+        showViewport(viewport,in:app)
         XCTAssertTrue((viewport.value as? String)?.contains("1.0") == true || (viewport.value as? String)?.contains("1,0") == true)
         let reset=viewport.value as? String
         viewport.pinch(withScale:0.8,velocity:-0.5)
@@ -183,6 +206,7 @@ final class CaptureStudioUITests:XCTestCase {
         let dragged=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != afterSwipe },object:nil)
         wait(for:[dragged],timeout:8)
         app.buttons["Nulstil 3D-visning"].tap()
+        showViewport(viewport,in:app)
         let resetPixels=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in
             guard let pixels=self.viewportPixels(viewport,in:app) else { return false }
             return pixels.teal>50 && abs(pixels.objectHeight-initialHeight)<=4
