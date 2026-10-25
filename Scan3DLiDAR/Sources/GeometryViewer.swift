@@ -1,4 +1,5 @@
 import CryptoKit
+import Combine
 import RealityKit
 import SwiftUI
 import UIKit
@@ -58,8 +59,8 @@ struct StoredGeometryViewer: View {
                             onFailure: { renderFailure = $0 }).accessibilityHidden(true)
                     }
                         .frame(height: 340)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
                         .accessibilityElement(children:.ignore)
+                        .accessibilityHidden(false)
                         .accessibilityIdentifier("geometry-viewport")
                         .accessibilityLabel("3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder.")
                         .accessibilityValue(cameraAccessibilityValue)
@@ -194,9 +195,21 @@ private final class GeometryPanGesture:UIPanGestureRecognizer {
 }
 
 /// Gestures beginning inside the model operate on it; scroll outside it to move the page.
-private final class GeometryARView:ARView {
+private final class GeometryRenderView:UIView {
+    let renderer=ARView(frame:.zero,cameraMode:.nonAR,automaticallyConfigureSession:false)
     var modelGestures:[UIGestureRecognizer]=[] { didSet { prioritizeModelGestures() } }
     private weak var coordinatedScrollView:UIScrollView?
+    override init(frame:CGRect) {
+        super.init(frame:frame)
+        // Keep the live Metal view and its rounded clipping within the same UIKit hierarchy.
+        clipsToBounds=true;layer.cornerRadius=20
+        renderer.isUserInteractionEnabled=false
+        renderer.frame=bounds
+        renderer.autoresizingMask=[.flexibleWidth,.flexibleHeight]
+        addSubview(renderer)
+        isMultipleTouchEnabled=true
+    }
+    required init?(coder:NSCoder) { fatalError("GeometryRenderView is created programmatically") }
     override func didMoveToWindow() {
         super.didMoveToWindow()
         prioritizeModelGestures()
@@ -207,6 +220,7 @@ private final class GeometryARView:ARView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
+        renderer.frame=bounds
         prioritizeModelGestures()
     }
     func prioritizeModelGestures() {
@@ -233,8 +247,9 @@ private struct GeometryViewport: UIViewRepresentable {
     let onFailure: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeUIView(context: Context) -> ARView {
-        let view = GeometryARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+    func makeUIView(context: Context) -> GeometryRenderView {
+        let surface=GeometryRenderView(frame:.zero)
+        let view=surface.renderer
         view.renderOptions=[.disableCameraGrain,.disableMotionBlur,.disableDepthOfField]
         let coordinator = context.coordinator
         geometryTrace("make view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(coordinator)) inputLight=\(lightBackground) ownerLight=\(coordinator.owner.lightBackground)")
@@ -262,6 +277,10 @@ private struct GeometryViewport: UIViewRepresentable {
             anchor.addChild(coordinator.cameraEntity)
             view.scene.addAnchor(anchor)
             coordinator.updateCamera()
+            coordinator.renderSubscription=view.scene.subscribe(to:SceneEvents.Update.self) { [weak coordinator,weak view] _ in
+                guard let coordinator,let view else { return }
+                coordinator.frameUpdated(view)
+            }
         } catch {
             let message = error.localizedDescription
             DispatchQueue.main.async { onFailure(message) }
@@ -269,19 +288,23 @@ private struct GeometryViewport: UIViewRepresentable {
         let pan=GeometryPanGesture(target:coordinator,action:#selector(Coordinator.pan(_:)))
         pan.maximumNumberOfTouches=1
         let pinch=UIPinchGestureRecognizer(target:coordinator,action:#selector(Coordinator.pinch(_:)))
-        view.modelGestures=[pan,pinch]
-        view.addGestureRecognizer(pan);view.addGestureRecognizer(pinch)
-        return view
+        surface.modelGestures=[pan,pinch]
+        surface.addGestureRecognizer(pan);surface.addGestureRecognizer(pinch)
+        return surface
     }
-    func updateUIView(_ view: ARView, context: Context) {
+    func updateUIView(_ surface:GeometryRenderView, context: Context) {
+        let view=surface.renderer
         geometryTrace("update view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(context.coordinator)) light=\(lightBackground) yaw=\(camera.yaw) distance=\(camera.distance)")
         context.coordinator.owner = self
+        context.coordinator.renderNeedsUpdate=true
         context.coordinator.updateCamera()
         context.coordinator.updateAppearance(view)
-        (view as? GeometryARView)?.prioritizeModelGestures()
+        surface.prioritizeModelGestures()
     }
-    static func dismantleUIView(_ view: ARView, coordinator: Coordinator) {
+    static func dismantleUIView(_ surface:GeometryRenderView, coordinator: Coordinator) {
+        let view=surface.renderer
         geometryTrace("dismantle view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(coordinator))")
+        coordinator.renderSubscription?.cancel();coordinator.renderSubscription=nil
         view.scene.anchors.removeAll()
     }
 
@@ -289,14 +312,27 @@ private struct GeometryViewport: UIViewRepresentable {
         var owner: GeometryViewport
         let cameraEntity = PerspectiveCamera()
         var modelEntity:ModelEntity?
+        var renderSubscription:(any Cancellable)?
+        var renderNeedsUpdate=true
+        private var frameCount=0
         private var appliedLightBackground:Bool?
         init(_ owner: GeometryViewport) { self.owner = owner }
         func updateCamera() {
             cameraEntity.look(at: .zero, from: owner.camera.position, relativeTo: nil)
         }
-        func updateAppearance(_ view:ARView) {
+        func frameUpdated(_ view:ARView) {
+            frameCount += 1
+            if renderNeedsUpdate {
+                // Apply state at the engine's frame boundary as well as the UIKit update.
+                updateCamera();updateAppearance(view,force:true);renderNeedsUpdate=false
+            }
+            if frameCount==1 || frameCount%600==0 {
+                geometryTrace("render frame=\(frameCount) attached=\(view.window != nil) active=\(modelEntity?.isActive ?? false) bounds=\(view.bounds)")
+            }
+        }
+        func updateAppearance(_ view:ARView,force:Bool=false) {
             geometryTrace("appearance view=\(ObjectIdentifier(view)) light=\(owner.lightBackground) applied=\(String(describing:appliedLightBackground))")
-            guard appliedLightBackground != owner.lightBackground else { return }
+            guard force || appliedLightBackground != owner.lightBackground else { return }
             appliedLightBackground=owner.lightBackground
             // Fixed canvas colors honor this user choice even when the app chrome uses dark appearance.
             view.environment.background = .color(owner.lightBackground ? UIColor(white:0.94,alpha:1):UIColor.black)
@@ -316,12 +352,14 @@ private struct GeometryViewport: UIViewRepresentable {
             let delta=gesture.consumeDelta()
             geometryTrace("pan state=\(gesture.state.rawValue) delta=\(delta) beforeYaw=\(owner.camera.yaw)")
             owner.camera.rotate(horizontal: -Float(delta.x) * 0.008, vertical: Float(delta.y) * 0.008)
+            renderNeedsUpdate=true
             updateCamera()
             geometryTrace("pan afterYaw=\(owner.camera.yaw)")
         }
         @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
             owner.camera.zoom(by: Float(gesture.scale))
+            renderNeedsUpdate=true
             gesture.scale = 1
             updateCamera()
         }
