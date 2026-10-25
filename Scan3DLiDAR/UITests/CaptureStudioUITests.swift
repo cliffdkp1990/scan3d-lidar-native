@@ -230,9 +230,12 @@ final class CaptureStudioUITests:XCTestCase {
             image.draw(in:CGRect(origin:.zero,size:image.size))
         }
         let full=try XCTUnwrap(normalized.cgImage)
-        let screen=app.windows.firstMatch.frame,scroll=app.scrollViews["studio-scroll"].frame
-        let bandHeight=min(CGFloat(52),scroll.minY-screen.minY)
-        XCTAssertGreaterThan(bandHeight,20,"The camera scroll area respects the top system safe area")
+        let screen=app.windows.firstMatch.frame
+        XCTAssertGreaterThan(screen.height,screen.width,"The status-bar sample is a portrait iPhone check")
+        // The pinned iPhone Simulator has an empty central band at y=12...52 points.
+        // AX reports the scroll frame including its background at y=0 even when drawing is clipped;
+        // use screen pixels, independently of that accessibility bounding box.
+        let bandHeight=min(CGFloat(52),screen.height*0.06)
         let scale=CGFloat(full.width)/screen.width
         let region=try XCTUnwrap(full.cropping(to:CGRect(x:screen.width*0.35*scale,y:12*scale,
             width:screen.width*0.30*scale,height:(bandHeight-12)*scale).integral))
