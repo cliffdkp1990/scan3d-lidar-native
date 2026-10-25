@@ -3,6 +3,19 @@ import RealityKit
 import SwiftUI
 import UIKit
 
+/// Isolated Simulator diagnostics; never records user captures or runs in Release.
+private func geometryTrace(_ message:String) {
+    #if DEBUG
+    guard ProcessInfo.processInfo.environment["SCAN3D_STUDIO_FIXTURE"]=="1" else { return }
+    let url=FileManager.default.temporaryDirectory.appendingPathComponent("Scan3D-Viewer-Trace.log")
+    let data=Data("\(Date().timeIntervalSince1970) \(message)\n".utf8)
+    if let file=try? FileHandle(forWritingTo:url) {
+        defer { try? file.close() }
+        if let size=try? file.seekToEnd(),size<1024*1024 { try? file.write(contentsOf:data) }
+    } else { try? data.write(to:url,options:.atomic) }
+    #endif
+}
+
 private struct PreparedGeometry {
     let geometry: GeometryPreview
     let positions: [SIMD3<Float>]
@@ -56,6 +69,7 @@ struct StoredGeometryViewer: View {
                     Text("Træk for at dreje. Knib for at zoome. Knapperne kan også bruges med VoiceOver.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Toggle("Lys baggrund", isOn: $lightBackground)
+                        .onChange(of:lightBackground) { _,value in geometryTrace("toggle light=\(value)") }
                     Text(prepared.geometry.isPointCloud ? "Målte LiDAR-punkter" : "Målt LiDAR-mesh")
                         .font(.title2.bold())
                     if prepared.geometry.isPointCloud {
@@ -159,6 +173,7 @@ private struct GeometryViewport: UIViewRepresentable {
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = "geometry-viewport"
         let coordinator = context.coordinator
+        geometryTrace("make view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(coordinator)) inputLight=\(lightBackground) ownerLight=\(coordinator.owner.lightBackground)")
         coordinator.renderView=view
         let anchor = AnchorEntity(world: .zero)
         do {
@@ -196,12 +211,16 @@ private struct GeometryViewport: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: ARView, context: Context) {
+        geometryTrace("update view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(context.coordinator)) light=\(lightBackground) yaw=\(camera.yaw) distance=\(camera.distance)")
         context.coordinator.owner = self
         context.coordinator.updateCamera()
         context.coordinator.updateAppearance(view)
         (view as? GeometryARView)?.prioritizeModelGestures()
     }
-    static func dismantleUIView(_ view: ARView, coordinator: Coordinator) { view.scene.anchors.removeAll() }
+    static func dismantleUIView(_ view: ARView, coordinator: Coordinator) {
+        geometryTrace("dismantle view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(coordinator))")
+        view.scene.anchors.removeAll()
+    }
 
     final class Coordinator: NSObject {
         var owner: GeometryViewport
@@ -220,6 +239,7 @@ private struct GeometryViewport: UIViewRepresentable {
                 4.5/owner.camera.distance,owner.camera.yaw*180 / .pi,owner.camera.pitch*180 / .pi)
         }
         func updateAppearance(_ view:ARView) {
+            geometryTrace("appearance view=\(ObjectIdentifier(view)) light=\(owner.lightBackground) applied=\(String(describing:appliedLightBackground))")
             guard appliedLightBackground != owner.lightBackground else { return }
             appliedLightBackground=owner.lightBackground
             // Fixed canvas colors honor this user choice even when the app chrome uses dark appearance.
@@ -238,9 +258,11 @@ private struct GeometryViewport: UIViewRepresentable {
         @objc func pan(_ gesture: UIPanGestureRecognizer) {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
             let delta = gesture.translation(in: gesture.view)
+            geometryTrace("pan state=\(gesture.state.rawValue) delta=\(delta) beforeYaw=\(owner.camera.yaw)")
             owner.camera.rotate(horizontal: -Float(delta.x) * 0.008, vertical: Float(delta.y) * 0.008)
             gesture.setTranslation(.zero, in: gesture.view)
             updateCamera()
+            geometryTrace("pan afterYaw=\(owner.camera.yaw)")
         }
         @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }

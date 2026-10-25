@@ -103,6 +103,10 @@ jobs:
           if [ -d "$RUNNER_TEMP/Scan3D-UI.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/Scan3D-UI.xcresult" --output-path "$RUNNER_TEMP/scan3d-ui-attachments"
           fi
+          CONTAINER=$(xcrun simctl get_app_container booted dk.scan3dstudio.lidar data 2>/dev/null || true)
+          if [ -n "$CONTAINER" ] && [ -f "$CONTAINER/tmp/Scan3D-Viewer-Trace.log" ]; then
+            cp "$CONTAINER/tmp/Scan3D-Viewer-Trace.log" "$RUNNER_TEMP/scan3d-viewer-trace.log"
+          fi
       - name: Save native UI evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -112,6 +116,7 @@ jobs:
             ${{ runner.temp }}/scan3d-ui.log
             ${{ runner.temp }}/scan3d-release.log
             ${{ runner.temp }}/scan3d-device.log
+            ${{ runner.temp }}/scan3d-viewer-trace.log
             ${{ runner.temp }}/scan3d-ui-attachments
           if-no-files-found: ignore
           retention-days: 7

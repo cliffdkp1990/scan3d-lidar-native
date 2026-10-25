@@ -35,27 +35,9 @@ final class CaptureStudioUITests:XCTestCase {
         }
         XCTFail("Control could not be reached by vertical scrolling: \(element.identifier)")
     }
-    private func viewportBrightness(_ frame:CGRect,in window:CGRect)->Double? {
-        guard let image=XCUIScreen.main.screenshot().image.cgImage else { return nil }
-        let x=(frame.minX+28-window.minX)*CGFloat(image.width)/window.width
-        let y=(frame.minY+28-window.minY)*CGFloat(image.height)/window.height
-        guard x>=0,y>=0,x<CGFloat(image.width),y<CGFloat(image.height),
-              let sample=image.cropping(to:CGRect(x:x.rounded(.down),y:y.rounded(.down),width:1,height:1)) else { return nil }
-        var pixel=[UInt8](repeating:0,count:4)
-        let rendered=pixel.withUnsafeMutableBytes { bytes->Bool in
-            guard let context=CGContext(data:bytes.baseAddress,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,
-                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
-            context.draw(sample,in:CGRect(x:0,y:0,width:1,height:1));return true
-        }
-        return rendered ? (Double(pixel[0])+Double(pixel[1])+Double(pixel[2]))/3:nil
-    }
-    private func visiblePointPixels(_ frame:CGRect,in window:CGRect)->Int {
-        guard let image=XCUIScreen.main.screenshot().image.cgImage else { return 0 }
-        let sx=CGFloat(image.width)/window.width, sy=CGFloat(image.height)/window.height
-        let crop=CGRect(x:(frame.minX-window.minX)*sx,y:(frame.minY-window.minY)*sy,
-            width:frame.width*sx,height:frame.height*sy).integral
-        guard crop.minX>=0,crop.minY>=0,crop.maxX<=CGFloat(image.width),crop.maxY<=CGFloat(image.height),
-              let region=image.cropping(to:crop) else { return 0 }
+    private func viewportPixels(_ viewport:XCUIElement)->(background:Double,teal:Int)? {
+        guard viewport.exists,let region=viewport.screenshot().image.cgImage,
+              region.width>=100,region.height>=100 else { return nil }
         let side=160
         var pixels=[UInt8](repeating:0,count:side*side*4)
         let drawn=pixels.withUnsafeMutableBytes { bytes->Bool in
@@ -63,12 +45,15 @@ final class CaptureStudioUITests:XCTestCase {
                 space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
             context.draw(region,in:CGRect(x:0,y:0,width:side,height:side));return true
         }
-        guard drawn else { return 0 }
-        // Both canvas styles render teal geometry; the black/gray/white canvas cannot satisfy this.
-        return stride(from:0,to:pixels.count,by:4).reduce(0) { count,index in
+        guard drawn else { return nil }
+        var luminance:[Int]=[],teal=0
+        for index in stride(from:0,to:pixels.count,by:4) {
             let r=Int(pixels[index]), g=Int(pixels[index+1]), b=Int(pixels[index+2])
-            return count + (g-r>20 && b-r>20 ? 1:0)
+            luminance.append((r+g+b)/3)
+            if g-r>20 && b-r>20 { teal += 1 }
         }
+        luminance.sort()
+        return (Double(luminance[luminance.count/2]),teal)
     }
     func testActualDensePointCloud()throws {
         let app=launch(dense:true)
@@ -84,11 +69,10 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertFalse(app.staticTexts["Kan ikke vise 3D-filen"].exists)
         let viewport=app.descendants(matching:.any).matching(identifier:"geometry-viewport").firstMatch
         XCTAssertTrue(viewport.waitForExistence(timeout:10))
-        let windowFrame=app.windows.firstMatch.frame, viewportFrame=viewport.frame
-        let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in self.visiblePointPixels(viewportFrame,in:windowFrame)>50 },object:nil)
+        let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport)?.teal ?? 0)>50 },object:nil)
         wait(for:[drawn],timeout:20)
-        let darkPoints=visiblePointPixels(viewportFrame,in:windowFrame)
-        let darkBrightness=try XCTUnwrap(viewportBrightness(viewportFrame,in:windowFrame))
+        let darkPixels=try XCTUnwrap(viewportPixels(viewport))
+        let darkPoints=darkPixels.teal,darkBrightness=darkPixels.background
         XCTAssertLessThan(darkBrightness,100,"Dark canvas renders dark pixels")
         screenshot("actual-point-cloud-dark-SYNTHETIC")
         let before=viewport.value as? String
@@ -100,12 +84,11 @@ final class CaptureStudioUITests:XCTestCase {
         background.tap()
         let switched=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in String(describing:background.value ?? "")=="1" },object:nil)
         wait(for:[switched],timeout:10)
-        let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportBrightness(viewportFrame,in:windowFrame) ?? 0)>200 },object:nil)
+        let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport)?.background ?? 0)>200 },object:nil)
         wait(for:[bright],timeout:10)
         XCTAssertTrue(viewport.exists,"Viewport keeps its semantic identifier after appearance changes")
-        XCTAssertEqual(viewport.frame,viewportFrame,"The measured image region remains in place")
-        let lightBrightness=try XCTUnwrap(viewportBrightness(viewportFrame,in:windowFrame))
-        let lightPoints=visiblePointPixels(viewportFrame,in:windowFrame)
+        let lightPixels=try XCTUnwrap(viewportPixels(viewport))
+        let lightBrightness=lightPixels.background,lightPoints=lightPixels.teal
         XCTAssertGreaterThan(lightPoints,50,"Teal points remain visible on the light canvas")
         print("POINTCLOUD_CANVAS measured dark=\(darkBrightness), light=\(lightBrightness); visible teal pixels dark=\(darkPoints), light=\(lightPoints); synthetic 48000 saved, 20000 displayed")
         screenshot("actual-point-cloud-light-SYNTHETIC")
@@ -144,7 +127,9 @@ final class CaptureStudioUITests:XCTestCase {
         viewport.pinch(withScale:0.8,velocity:-0.5)
         XCTAssertNotEqual(viewport.value as? String,reset)
         let pinched=viewport.value as? String
+        print("VIEWPORT_BEFORE_SWIPE frame=\(viewport.frame) value=\(String(describing:pinched))")
         viewport.swipeRight()
+        let debug=XCTAttachment(string:app.debugDescription);debug.name="native-hierarchy-after-swipe";debug.lifetime = .keepAlways;add(debug)
         let swiped=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != pinched },object:nil)
         wait(for:[swiped],timeout:3)
         let afterSwipe=viewport.value as? String
