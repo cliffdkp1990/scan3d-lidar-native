@@ -283,7 +283,9 @@ private struct GeometryViewport: UIViewRepresentable {
             let mesh = try MeshResource.generate(from: [descriptor])
             let model=ModelEntity(mesh:mesh,materials:[])
             coordinator.modelEntity=model
-            coordinator.updateAppearance(view)
+            // Attach the geometry to the scene before creating RealityKit materials.
+            // A newly reconstructed ARView can otherwise display the canvas
+            // while the point-cloud material is not rendered.
             anchor.addChild(model)
             let light = DirectionalLight()
             light.light.intensity = 2500
@@ -298,6 +300,8 @@ private struct GeometryViewport: UIViewRepresentable {
             coordinator.cameraEntity.camera.far = 50
             anchor.addChild(coordinator.cameraEntity)
             view.scene.addAnchor(anchor)
+            coordinator.updateAppearance(view,force:true)
+            geometryTrace("attached geometry active=\(model.isActive) materials=\(model.model?.materials.count ?? 0) triangles=\(prepared.indices.count / 3)")
             coordinator.updateCamera()
             coordinator.renderSubscription=view.scene.subscribe(to:SceneEvents.Update.self) { [weak coordinator,weak view] _ in
                 guard let coordinator,let view else { return }
