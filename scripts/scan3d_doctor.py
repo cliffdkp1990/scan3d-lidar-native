@@ -36,7 +36,9 @@ def classify(steps,log):
             if re.search(r"error:|Test Case .* failed|TEST FAILED",x,re.I)]
     first=errors[0] if errors else redacted(next((x for x in log.splitlines()
                                                      if TRANSIENT.search(x)),"No precise log cause identified."))
-    if "native camera" in names or "ui test" in names or "xctest" in log.lower():
+    # Failing step is authoritative: the complete job log may mention XCTests
+    # during an unrelated compiler failure or runner setup problem.
+    if "native camera" in names or "ui test" in names:
         return "ui_test",first
     if any(s in names for s in ("source","compile","release","preflight")):
         return "code_or_build",first
@@ -46,6 +48,8 @@ def classify(steps,log):
         return "permissions",first
     if steps and all("set up job" in x.lower() or "checkout" in x.lower() for x in steps) and TRANSIENT.search(log):
         return "transient_runner",first
+    if "xctest" in log.lower() and steps:
+        return "ui_test",first
     return "unknown",first
 
 def diagnose(run,jobs,prs,log):
@@ -57,7 +61,9 @@ def diagnose(run,jobs,prs,log):
     pr=next((p for p in matching if p.get("head",{}).get("sha")==run.get("head_sha")),
             matching[0] if matching else None)
     current=bool(pr and pr.get("head",{}).get("sha")==run.get("head_sha"))
-    valid=run.get("repository",{}).get("full_name")==REPO
+    valid=(run.get("repository",{}).get("full_name")==REPO
+           and run.get("name")==WORKFLOW
+           and re.fullmatch(r"[0-9a-f]{40}",str(run.get("head_sha",""))) is not None)
     retry=(valid and run.get("status")=="completed"
            and run.get("conclusion")=="failure" and run.get("run_attempt")==1
            and current and kind=="transient_runner")
@@ -79,6 +85,14 @@ def maintain_issue(data):
     issue=next((x for x in issues if x.get("title")==title),None)
     if issue and (ISSUE_MARKER+str(data["runId"])) in issue.get("body",""):
         return "Issue already contains this run."
+    if issue:
+        # Comments are append-only: never overwrite engineer's investigation
+        # notes, checklists, or a manually edited issue description.
+        existing=json.loads(gh("issue","view",str(issue["number"]),
+                               "--repo",REPO,"--json","comments"))
+        if any((ISSUE_MARKER+str(data["runId"])) in c.get("body","")
+               for c in existing.get("comments",[])):
+            return "This run was already documented in an issue comment."
     body="\n".join(["Automated diagnostic. Not proof of a fixed build.",
                     "PR: #{}".format(data["prNumber"]),
                     "Branch: "+str(data["branch"]),
@@ -90,8 +104,8 @@ def maintain_issue(data):
                     "No automatic merge, deployment or physical iPhone test.",
                     "<!-- "+ISSUE_MARKER+str(data["runId"])+" -->"])
     if issue:
-        gh("issue","edit",str(issue["number"]),"--repo",REPO,"--body",body)
-        return "Updated existing repair issue #{}".format(issue["number"])
+        gh("issue","comment",str(issue["number"]),"--repo",REPO,"--body",body)
+        return "Appended diagnosis to issue #{}".format(issue["number"])
     gh("issue","create","--repo",REPO,"--title",title,"--body",body)
     return "Created repair issue."
 
@@ -117,6 +131,8 @@ def main():
         run=api("repos/{}/actions/runs/{}".format(REPO,rid))
         if run.get("repository",{}).get("full_name")!=REPO:
             raise RuntimeError("Unknown repository for requested run")
+        if run.get("name")!=WORKFLOW:
+            raise RuntimeError("Refusing to diagnose a different workflow")
         jobs=api("repos/{}/actions/runs/{}/jobs?per_page=100".format(REPO,rid)).get("jobs",[])
         prs=api("repos/{}/pulls?state=open&per_page=100".format(REPO))
         try:
