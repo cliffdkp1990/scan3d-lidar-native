@@ -5,16 +5,16 @@ on:
     paths:
       - 'Scan3DLiDAR/**'
       - '.github/workflows/scan3d-lidar.yml'
+  # All PRs must be checked, including changes to scripts and build policies.
   pull_request:
-    paths:
-      - 'Scan3DLiDAR/**'
-      - '.github/workflows/scan3d-lidar.yml'
   workflow_dispatch:
 permissions:
   contents: read
+# Do not cancel a previous commit's evidence when a new commit is pushed.
+# Each PR revision has an independent, reproducible Actions result.
 concurrency:
-  group: scan3d-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: scan3d-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 jobs:
   ios-build:
     name: Test and compile actual repository source
