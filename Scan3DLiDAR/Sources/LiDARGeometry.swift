@@ -8,51 +8,9 @@ import simd
 enum LiDARDepthSampler {
     static func sample(frame: ARFrame, into collector: PointCollector, target: CloudVertex?) -> Int {
         guard let depth = frame.smoothedSceneDepth ?? frame.sceneDepth, let confidence=depth.confidenceMap else { return 0 }
-        let buffer = depth.depthMap
-        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_DepthFloat32 else { return 0 }
-        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
-        guard width >= 5, height >= 5,
-              CVPixelBufferGetWidth(confidence)==width, CVPixelBufferGetHeight(confidence)==height,
-              CVPixelBufferGetPixelFormatType(confidence)==kCVPixelFormatType_OneComponent8 else { return 0 }
-        let imW = Float(CVPixelBufferGetWidth(frame.capturedImage))
-        let imH = Float(CVPixelBufferGetHeight(frame.capturedImage))
-        let fx = frame.camera.intrinsics[0,0] * Float(width) / imW
-        let fy = frame.camera.intrinsics[1,1] * Float(height) / imH
-        let cx = frame.camera.intrinsics[2,0] * Float(width) / imW
-        let cy = frame.camera.intrinsics[2,1] * Float(height) / imH
-        guard fx.isFinite, fy.isFinite, fx > 1, fy > 1 else { return 0 }
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        CVPixelBufferLockBaseAddress(confidence, .readOnly)
-        defer {
-            CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
-            CVPixelBufferUnlockBaseAddress(confidence, .readOnly)
-        }
-        guard let raw = CVPixelBufferGetBaseAddress(buffer) else { return 0 }
-        let depths = raw.assumingMemoryBound(to: Float32.self)
-        let depthStride = CVPixelBufferGetBytesPerRow(buffer)/MemoryLayout<Float32>.size
-        guard let conf=CVPixelBufferGetBaseAddress(confidence)?.assumingMemoryBound(to:UInt8.self) else { return 0 }
-        let confStride=CVPixelBufferGetBytesPerRow(confidence)
-        guard depthStride >= width, confStride >= width else { return 0 }
-        let before = collector.count
-        // Dense, bounded sampling. Confidence/edge checks never invent missing depth.
-        for y in stride(from: 1, to: height-1, by: 2) {
-            for x in stride(from: 1, to: width-1, by: 2) {
-                let z = depths[y*depthStride+x]
-                guard z.isFinite, z >= 0.22, z <= 2.5 else { continue }
-                guard conf[y*confStride+x] >= 1, conf[y*confStride+x] <= 2 else { continue }
-                let neighbours=[(x-1,y),(x+1,y),(x,y-1),(x,y+1)].compactMap { nx,ny -> Float? in
-                    guard conf[ny*confStride+nx] >= 1, conf[ny*confStride+nx] <= 2 else { return nil }
-                    return depths[ny*depthStride+nx]
-                }
-                guard DepthQuality.supportsPoint(z,neighbours:neighbours) else { continue }
-                // ARKit camera looks along -Z; camera image pixel Y is downward.
-                let pos = SIMD4<Float>((Float(x)-cx)*z/fx, -(Float(y)-cy)*z/fy, -z, 1)
-                let world = simd_mul(frame.camera.transform, pos)
-                collector.add(CloudVertex(x:world.x, y:world.y, z:world.z), target:target)
-                if collector.count >= collector.maxPoints { return collector.count-before }
-            }
-        }
-        return collector.count-before
+        return DepthBufferSampler.sample(depth:depth.depthMap,confidence:confidence,intrinsics:frame.camera.intrinsics,
+            imageSize:SIMD2<Float>(Float(CVPixelBufferGetWidth(frame.capturedImage)),Float(CVPixelBufferGetHeight(frame.capturedImage))),
+            transform:frame.camera.transform,into:collector,target:target)
     }
 }
 

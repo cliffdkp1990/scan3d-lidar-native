@@ -35,7 +35,7 @@ final class PointCollector {
     var count: Int { pointsByCell.count }
     func clear() { pointsByCell.removeAll(keepingCapacity: true) }
     func add(_ point: CloudVertex, target: CloudVertex?, radius: Float = 0.7) {
-        guard point.finite else { return }
+        guard point.finite, radius.isFinite, radius > 0, target?.finite != false else { return }
         if let target, point.distanceSquared(to: target) > radius * radius { return }
         guard let key = VoxelIndex(point, step: resolution) else { return }
         if let sample=pointsByCell[key] {

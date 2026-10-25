@@ -1,6 +1,6 @@
 # Scan3D LiDAR
 
-The Camera Studio review now adds supported ARKit high-resolution still capture, exact-frame luminance checks, rotational stability, confidence/edge-filtered LiDAR, bounded voxel averaging and a redesigned native capture UI. See `docs/CAMERA_STUDIO_DA.md` for the implemented behavior, test gates and unverified physical-camera limits. Native UI fixtures are synthetic, isolated and DEBUG-only; they are not physical sensor evidence. No megapixel, accuracy or physical performance claim is implied by CI.
+The Camera Studio review now adds supported ARKit high-resolution still capture, exact-frame luminance checks, rotational stability, confidence/edge-filtered LiDAR, bounded voxel averaging and a redesigned native capture UI. The shared depth-buffer adapter is tested from real synthetic CoreVideo maps through calibration and world transforms to a persisted PLY roundtrip. Reaching the point budget no longer discards later refinements of existing voxels. See `docs/CAMERA_STUDIO_DA.md` for the implemented behavior, test gates and unverified physical-camera limits. Native UI fixtures are synthetic, isolated and DEBUG-only; they are not physical sensor evidence. No megapixel, accuracy or physical performance claim is implied by CI.
 
 Native LiDAR-capable iPhone prototype using SwiftUI, ARKit, RealityKit and Vision (iOS 17+; physical acceptance target: iPhone 14 Pro Max). Ordinary iPhone 13 has no LiDAR and cannot use this capture path. The source captures guided photos and camera video, samples real LiDAR depth and exports PLY/OBJ. The review source now includes a RealityKit viewer for those saved exports. Photo/video-based reconstruction remains planned.
 
@@ -18,7 +18,7 @@ The project manifest journals a pending clip before recording. Only a finalized,
 
 CI additionally writes synthetic frames through the actual AVAssetWriter pipeline and decodes every resulting frame. It tests timestamps, all four track rotations, no audio, resolution bounds, stop idempotence, low-space finalization, an interruption stop reason, empty/corrupt files, publication failure and recovery. These are real codec/filesystem tests on macOS, not recordings of a physical iPhone or an interactive Simulator UI test.
 
-The source lives directly in `Scan3DLiDAR/`. The workflow compiles that source; it does not download an external source ZIP. See GitHub Actions and the pull request checks for the current build result. CI runs for pull requests and pushes to main, avoiding duplicate branch/PR builds. Physical iPhone installation, signing and LiDAR acceptance tests remain outstanding.
+The source lives directly in `Scan3DLiDAR/`. The workflow compiles that source for both Simulator and unsigned iPhone Release; it does not download an external source ZIP. See GitHub Actions and the pull request checks for the current build result. CI runs for pull requests and pushes to main, avoiding duplicate branch/PR builds. Physical iPhone installation, signing and LiDAR acceptance tests remain outstanding.
 
 For Mac: install Xcode and XcodeGen, run `xcodegen generate` inside `Scan3DLiDAR`, then open the generated Xcode project. Sign with your own Apple team to run on a physical supported device. An unsigned Simulator build does not install on an iPhone.
 

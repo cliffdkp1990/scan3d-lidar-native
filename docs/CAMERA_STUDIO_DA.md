@@ -27,6 +27,10 @@ En separat iOS-test sender rigtige syntetiske CoreVideo-buffere gennem CameraIma
 
 En gentaget native test fandt en udeblevet drejning ved hurtigt swipe i resultatvieweren. Modelgestus har nu prioritet over den omgivende rulning, når berøringen starter i viewporten; rulning uden for modellen bruges til at flytte siden. Den sidste gestusdelta behandles også ved ended. Testen bevarer swipe-kontrollen og tilføjer et træk mellem to punkter inde i viewporten. Simulatorens syntetiske resultat får desuden sin egen synlige testdataetiket.
 
+LiDAR-læsningen er samlet i DepthBufferSampler, som bruges direkte af både ARKit-adapteren, mållåsningen og regressionstesten. De faktiske CoreVideo-floatdybder og confidence-bytes afprøves med separate, forgiftede row paddings. Testene følger kendte dybdeplaner gennem intrinsics-skalering, kameraets rotation/translation, punktopsamling, PLY-eksport og den rigtige parser. De kontrollerer også dybdespidser, baggrundsspring, ukendt confidence, forkerte bufferformater og ugyldige koordinater. Dette er syntetiske bufferprøver, ikke målte LiDAR-scanninger.
+
+Sampleren afslutter ikke længere ved fyldt punktbudget: senere observationer må fortsat forbedre eksisterende voxler, mens nye celler afvises af det samme budget. Ingen ekstra dybdepixels opfindes. CI bygger desuden Release til fysisk iPhone-arkitektur med signering slået fra. Det er en kompileringskontrol; den usignerede app kan ikke installeres på telefonen.
+
 Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, roterede fotos, kamera/LiDAR-kalibrering, skarphed/eksponering på forskellige genstande, dybdefiltre ved kanter og tynde overflader, batteri/varme, termiske callbacks og framerate. Der er ingen signeret installation eller fysisk Safari-/iPhone-test påstået. Fotogrammetri, objektisolering og detaljeret video/foto-til-model er separate udestående projektdele.
 
 ## Primære API-kilder
@@ -35,3 +39,5 @@ Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, rote
 - https://developer.apple.com/documentation/arkit/arconfiguration/recommendedvideoformatforhighresolutionframecapturing
 - https://developer.apple.com/documentation/arkit/ardepthdata/confidencemap
 - https://developer.apple.com/documentation/xcode/specifying-your-apps-launch-screen
+- https://developer.apple.com/documentation/arkit/arcamera/intrinsics
+- https://developer.apple.com/documentation/arkit/arcamera/imageresolution

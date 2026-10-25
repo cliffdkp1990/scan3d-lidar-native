@@ -30,22 +30,6 @@ enum CameraImageQuality {
 enum LiDARFrameQuality {
     static func center(_ frame: ARFrame) -> DepthEstimate? {
         guard let data=frame.smoothedSceneDepth ?? frame.sceneDepth, let confidence=data.confidenceMap else { return nil }
-        let buffer=data.depthMap
-        let width=CVPixelBufferGetWidth(buffer), height=CVPixelBufferGetHeight(buffer)
-        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_DepthFloat32,
-              CVPixelBufferGetPixelFormatType(confidence) == kCVPixelFormatType_OneComponent8,
-              width >= 5, height >= 5, CVPixelBufferGetWidth(confidence)==width, CVPixelBufferGetHeight(confidence)==height else { return nil }
-        CVPixelBufferLockBaseAddress(buffer,.readOnly); CVPixelBufferLockBaseAddress(confidence,.readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer,.readOnly); CVPixelBufferUnlockBaseAddress(confidence,.readOnly) }
-        guard let z=CVPixelBufferGetBaseAddress(buffer)?.assumingMemoryBound(to:Float32.self),
-              let c=CVPixelBufferGetBaseAddress(confidence)?.assumingMemoryBound(to:UInt8.self) else { return nil }
-        let row=CVPixelBufferGetBytesPerRow(buffer)/MemoryLayout<Float32>.size
-        let cr=CVPixelBufferGetBytesPerRow(confidence)
-        guard row >= width, cr >= width else { return nil }
-        var depths:[Float]=[], confidences:[UInt8]=[]
-        for y in (height/2-2)...(height/2+2) { for x in (width/2-2)...(width/2+2) {
-            depths.append(z[y*row+x]); confidences.append(c[y*cr+x])
-        }}
-        return DepthQuality.estimate(depths:depths,confidence:confidences)
+        return DepthBufferSampler.center(depth:data.depthMap,confidence:confidence)
     }
 }

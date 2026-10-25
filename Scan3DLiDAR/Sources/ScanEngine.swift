@@ -285,9 +285,11 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         let matrix = frame.camera.transform
         let intrinsics=frame.camera.intrinsics
         let width=Float(CVPixelBufferGetWidth(frame.capturedImage)), height=Float(CVPixelBufferGetHeight(frame.capturedImage))
-        guard let cameraTarget=DepthQuality.unproject(x:width/2,y:height/2,depth:depth,
-            fx:intrinsics[0,0],fy:intrinsics[1,1],cx:intrinsics[2,0],cy:intrinsics[2,1]) else { return }
-        let world=simd_mul(matrix,SIMD4<Float>(cameraTarget.x,cameraTarget.y,cameraTarget.z,1))
+        guard let world=DepthBufferSampler.worldPoint(x:width/2,y:height/2,depth:depth,
+            intrinsics:intrinsics,imageSize:SIMD2<Float>(width,height),mapSize:SIMD2<Float>(width,height),transform:matrix) else {
+            guidanceText="Venter på gyldige kamerakoordinater. Hold telefonen roligt og prøv igen."
+            return
+        }
         // Commit the new project before replacing any in-memory target/state.
         do { activeProject = try projectStore.create() }
         catch {
@@ -845,7 +847,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
                 info["photo_quality_condition"]=measured.condition.rawValue
                 info["quality_warning"]="Central luma/detail heuristic, not calibrated focus or reconstruction-quality verification."
                 info["point_voxel_spacing_m"]=self.cloud.resolution
-                info["lidar_filter_version"]="confidence-neighbour-voxel-1"
+                info["lidar_filter_version"]="confidence-buffer-neighbour-voxel-2"
                 let saved=try self.projectStore.saveCapture(projectID:project.id,slot:slotKey,jpeg:encoded.data,
                     metadata:JSONSerialization.data(withJSONObject:info,options:[.prettyPrinted]),
                     thumbnail:Self.thumbnail(encoded.data),pointCloud:GeometryExport.ply(points:points))
