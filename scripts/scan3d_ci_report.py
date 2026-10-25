@@ -32,9 +32,20 @@ def failures(path: Path, max_entries: int = 3) -> list[str]:
             break
     return matches
 
-def report(sha: str, run: str, statuses: dict[str,str], logs: Path) -> dict:
+def report(sha: str, run: str, statuses: dict[str,str], logs: Path,
+           head_sha: str | None = None, event: str = "unknown") -> dict:
+    # On pull_request, actions/checkout normally builds refs/pull/N/merge,
+    # NOT the PR branch head. Both must be recorded to avoid a false assertion.
     if not re.fullmatch(r"[0-9a-f]{40}",sha):
-        raise ValueError("Exact 40-character commit SHA required")
+        raise ValueError("Exact 40-character checked-out SHA required")
+    if head_sha is not None and not re.fullmatch(r"[0-9a-f]{40}",head_sha):
+        raise ValueError("Exact 40-character source head SHA required")
+    if event == "pull_request" and head_sha is None:
+        raise ValueError("A pull_request report requires its actual head SHA")
+    if event not in {"unknown","pull_request","push","workflow_dispatch"}:
+        raise ValueError("Unrecognized GitHub event")
+    if event != "pull_request" and head_sha is not None and head_sha != sha:
+        raise ValueError("Non-PR source SHA disagrees with checked-out SHA")
     steps=[]
     for key,title,filename in STEPS:
         status=statuses.get(key,"unknown")
@@ -42,19 +53,27 @@ def report(sha: str, run: str, statuses: dict[str,str], logs: Path) -> dict:
             raise ValueError(f"Invalid status for {key}: {status}")
         steps.append({"id":key,"title":title,"status":status,
                       "errors":failures(logs / filename) if status=="failure" else []})
-    return {"schemaVersion":1,"commitSHA":sha,"runId":str(run),
+    all_passed = all(x["status"]=="success" for x in steps)
+    return {"schemaVersion":2,"commitSHA":sha,"checkedOutSHA":sha,
+            "pullRequestHeadSHA":head_sha if event=="pull_request" else None,
+            "eventName":event,"runId":str(run),
             "checkedAtUTC":datetime.now(timezone.utc).isoformat(),
-            "ciPassedForExactCommit":all(x["status"]=="success" for x in steps),
+            "ciPassedForExactCommit":all_passed,
+            "ciPassedForPullRequestHead":all_passed and head_sha==sha if event=="pull_request" else all_passed,
             "physicalIPhoneTest":"not_verified","appleSignedInstall":"not_verified",
             "steps":steps}
 
 def markdown(data: dict) -> str:
-    rows=[f'## Scan3D CI · commit `{data["commitSHA"][:10]}`',
-          "",f'Run: `{data["runId"]}` · Git SHA `{data["commitSHA"]}`',
+    rows=[f'## Scan3D CI · testet checkout `{data["checkedOutSHA"][:10]}`',
+          "",f'Run: `{data["runId"]}` · Checket ud `{data["checkedOutSHA"]}`',
           "", "| Testniveau | Faktisk resultat |", "|---|---|"]
     for item in data["steps"]:
         rows.append(f'| {item["title"]} | **{item["status"]}** |')
-    rows += ["","**Samlet status:** "+("Bestået for præcis denne commit" if data["ciPassedForExactCommit"] else "IKKE bestået for denne commit"),
+    if data["eventName"] == "pull_request":
+        rows += ["",f'PR-head: `{data["pullRequestHeadSHA"]}`',
+                 "Der testes en GitHub checkout (typisk PR-merge). "
+                 "Grøn CI er ikke separat bevis for et standalone build af PR-head."]
+    rows += ["","**Samlet status:** "+("Bestået for faktisk checket ud kode" if data["ciPassedForExactCommit"] else "IKKE bestået for faktisk checket ud kode"),
              "","Fysisk LiDAR/iPhone-test: ikke verificeret. Signering: ikke verificeret.",
              "","### Første konkrete fejl pr. fejlet trin"]
     for item in data["steps"]:
@@ -67,14 +86,17 @@ def markdown(data: dict) -> str:
 
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sha",required=True)
+    parser.add_argument("--sha",required=True,help="git rev-parse HEAD after checkout")
+    parser.add_argument("--head-sha",help="PR branch head SHA, not the generated merge SHA")
+    parser.add_argument("--event",default="unknown",choices=["unknown","pull_request","push","workflow_dispatch"])
     parser.add_argument("--run-id",required=True)
     parser.add_argument("--log-directory",required=True)
     parser.add_argument("--output",required=True)
     for key,_,_ in STEPS:
         parser.add_argument("--"+key,choices=sorted(STATES),default="unknown")
     args=parser.parse_args()
-    d=report(args.sha,args.run_id,{key:getattr(args,key) for key,_,_ in STEPS},Path(args.log_directory))
+    d=report(args.sha,args.run_id,{key:getattr(args,key) for key,_,_ in STEPS},
+             Path(args.log_directory),head_sha=args.head_sha,event=args.event)
     output=Path(args.output)
     output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(json.dumps(d,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
