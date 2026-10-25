@@ -16,6 +16,8 @@ class AutomatedChecks(unittest.TestCase):
     def test_all_green_requires_same_sha(self):
         r=report(SHA,"42",self.passed,self.root)
         self.assertTrue(r["ciPassedForExactCommit"])
+        self.assertEqual(r["checkedOutSHA"], SHA)
+        self.assertTrue(r["ciPassedForPullRequestHead"])
         self.assertEqual(r["appleSignedInstall"],"not_verified")
     def test_failed_ui_remains_red_even_if_builds_pass(self):
         states=dict(self.passed,ui="failure")
@@ -28,6 +30,20 @@ class AutomatedChecks(unittest.TestCase):
         self.assertFalse(report(SHA,"42",{},self.root)["ciPassedForExactCommit"])
     def test_short_sha_is_rejected(self):
         with self.assertRaises(ValueError):report("665922f","42",self.passed,self.root)
+    def test_pull_request_merge_not_mistaken_for_head_commit(self):
+        merge_sha="8"*40
+        r=report(merge_sha,"42",self.passed,self.root,head_sha=SHA,event="pull_request")
+        self.assertTrue(r["ciPassedForExactCommit"])
+        self.assertFalse(r["ciPassedForPullRequestHead"])
+        self.assertEqual(r["checkedOutSHA"],merge_sha)
+        self.assertEqual(r["pullRequestHeadSHA"],SHA)
+        self.assertIn("ikke separat bevis",markdown(r))
+    def test_pull_request_requires_head_sha(self):
+        with self.assertRaises(ValueError):
+            report(SHA,"42",self.passed,self.root,event="pull_request")
+    def test_normal_push_rejects_sha_mismatch(self):
+        with self.assertRaises(ValueError):
+            report(SHA,"42",self.passed,self.root,head_sha="8"*40,event="push")
     def test_error_lines_are_extracted_and_limited(self):
         file=self.root/"scan3d-ui.log"
         file.write_text("normal\nTest Case '-[Scan3DTests.Capture testSomething]' failed (15.0 seconds).\n** TEST FAILED **\n")
