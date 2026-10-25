@@ -4,11 +4,11 @@ import SwiftUI
 import UIKit
 
 /// Isolated Simulator diagnostics; never records user captures or runs in Release.
-private func geometryTrace(_ message:String) {
+private func geometryTrace(_ message:@autoclosure()->String) {
     #if DEBUG
     guard ProcessInfo.processInfo.environment["SCAN3D_STUDIO_FIXTURE"]=="1" else { return }
     let url=FileManager.default.temporaryDirectory.appendingPathComponent("Scan3D-Viewer-Trace.log")
-    let data=Data("\(Date().timeIntervalSince1970) \(message)\n".utf8)
+    let data=Data("\(Date().timeIntervalSince1970) \(message())\n".utf8)
     if let file=try? FileHandle(forWritingTo:url) {
         defer { try? file.close() }
         if let size=try? file.seekToEnd(),size<1024*1024 { try? file.write(contentsOf:data) }
@@ -68,8 +68,15 @@ struct StoredGeometryViewer: View {
                     }.buttonStyle(.bordered).controlSize(.large)
                     Text("Træk for at dreje. Knib for at zoome. Knapperne kan også bruges med VoiceOver.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Toggle("Lys baggrund", isOn: $lightBackground)
-                        .onChange(of:lightBackground) { _,value in geometryTrace("toggle light=\(value)") }
+                    HStack(spacing:12) {
+                        Text("Lys baggrund").fixedSize(horizontal:false,vertical:true).accessibilityHidden(true)
+                        Spacer(minLength:12)
+                        Toggle("Lys baggrund", isOn:$lightBackground)
+                            .labelsHidden().frame(width:52,height:44)
+                            .accessibilityLabel("Lys baggrund")
+                            .accessibilityIdentifier("geometry-light-background")
+                    }
+                    .onChange(of:lightBackground) { _,value in geometryTrace("toggle light=\(value)") }
                     Text(prepared.geometry.isPointCloud ? "Målte LiDAR-punkter" : "Målt LiDAR-mesh")
                         .font(.title2.bold())
                     if prepared.geometry.isPointCloud {

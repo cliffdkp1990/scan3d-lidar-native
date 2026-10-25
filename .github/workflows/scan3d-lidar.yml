@@ -103,9 +103,9 @@ jobs:
           if [ -d "$RUNNER_TEMP/Scan3D-UI.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/Scan3D-UI.xcresult" --output-path "$RUNNER_TEMP/scan3d-ui-attachments"
           fi
-          CONTAINER=$(xcrun simctl get_app_container booted dk.scan3dstudio.lidar data 2>/dev/null || true)
-          if [ -n "$CONTAINER" ] && [ -f "$CONTAINER/tmp/Scan3D-Viewer-Trace.log" ]; then
-            cp "$CONTAINER/tmp/Scan3D-Viewer-Trace.log" "$RUNNER_TEMP/scan3d-viewer-trace.log"
+          SCAN3D_APP_CONTAINER=$(xcrun simctl get_app_container booted dk.scan3dstudio.lidar data 2>/dev/null || true)
+          if [ -n "$SCAN3D_APP_CONTAINER" ] && [ -f "$SCAN3D_APP_CONTAINER/tmp/Scan3D-Viewer-Trace.log" ]; then
+            cp "$SCAN3D_APP_CONTAINER/tmp/Scan3D-Viewer-Trace.log" "$RUNNER_TEMP/scan3d-viewer-trace.log"
           fi
       - name: Save native UI evidence
         if: always()

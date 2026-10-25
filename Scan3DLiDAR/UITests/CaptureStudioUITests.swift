@@ -79,8 +79,10 @@ final class CaptureStudioUITests:XCTestCase {
         app.buttons["Zoom ind"].tap()
         XCTAssertNotEqual(viewport.value as? String,before)
         app.buttons["Nulstil 3D-visning"].tap()
-        let background=app.switches["Lys baggrund"]
+        let background=app.switches["geometry-light-background"]
         XCTAssertTrue(background.isHittable)
+        XCTAssertLessThan(background.frame.width,100,"The switch itself is the target, not the entire label row")
+        print("BACKGROUND_SWITCH frame=\(background.frame) value=\(String(describing:background.value))")
         background.tap()
         let switched=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in String(describing:background.value ?? "")=="1" },object:nil)
         wait(for:[switched],timeout:10)
