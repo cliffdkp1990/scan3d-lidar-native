@@ -40,10 +40,15 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertLessThanOrEqual(frame.maxX,window.maxX+1,file:file,line:line)
     }
     private func reveal(_ element:XCUIElement,in app:XCUIApplication) {
-        for _ in 0..<10 {
+        let scroll=app.scrollViews["studio-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout:10),"Capture controls must remain in a scrollable container")
+        for _ in 0..<16 {
             let frame=element.frame, window=app.windows.firstMatch.frame
-            if frame.height>0 && frame.minY>=window.minY+30 && frame.maxY<=window.maxY-30 { return }
-            app.swipeUp()
+            if element.isHittable && frame.height>0 &&
+                frame.minY>=window.minY+16 && frame.maxY<=window.maxY-16 { return }
+            // Scroll the intended container, not the entire app. At accessibility
+            // sizes, a gesture on the camera preview may be intercepted.
+            scroll.swipeUp()
         }
         XCTFail("Control could not be reached by vertical scrolling: \(element.identifier)")
     }
