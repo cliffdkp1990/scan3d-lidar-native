@@ -84,13 +84,21 @@ struct StoredGeometryViewer: View {
                     Text("Træk for at dreje. Knib for at zoome. Knapperne kan også bruges med VoiceOver.")
                         .font(.footnote).foregroundStyle(.secondary)
                     HStack(spacing:12) {
-                        Text("Lys baggrund").fixedSize(horizontal:false,vertical:true).accessibilityHidden(true)
-                        Spacer(minLength:12)
-                        Toggle("Lys baggrund", isOn:$lightBackground)
-                            .labelsHidden().frame(width:64,height:44)
-                            .accessibilityLabel("Lys baggrund")
-                            .accessibilityIdentifier("geometry-light-background")
-                    }
+                        Button { lightBackground=false } label: {
+                            Label("Mørk baggrund",systemImage:"moon.fill").frame(maxWidth:.infinity,minHeight:44)
+                        }
+                        .accessibilityLabel("Mørk baggrund")
+                        .accessibilityValue(lightBackground ? "Ikke valgt":"Valgt")
+                        .accessibilityIdentifier("geometry-dark-background")
+                        .tint(lightBackground ? .gray:.teal)
+                        Button { lightBackground=true } label: {
+                            Label("Lys baggrund",systemImage:"sun.max.fill").frame(maxWidth:.infinity,minHeight:44)
+                        }
+                        .accessibilityLabel("Lys baggrund")
+                        .accessibilityValue(lightBackground ? "Valgt":"Ikke valgt")
+                        .accessibilityIdentifier("geometry-light-background")
+                        .tint(lightBackground ? .teal:.gray)
+                    }.buttonStyle(.bordered)
                     .onChange(of:lightBackground) { _,value in geometryTrace("toggle light=\(value)") }
                     Text(prepared.geometry.isPointCloud ? "Målte LiDAR-punkter" : "Målt LiDAR-mesh")
                         .font(.title2.bold())
@@ -145,6 +153,43 @@ struct StoredGeometryViewer: View {
                 failure = error.localizedDescription
             }
         }
+    }
+}
+
+/// Keep the finger's initial position even when recognition is delayed until the last move.
+/// Simulator traces exposed a quick gesture with only .began/.ended and zero UIKit translation.
+private final class GeometryPanGesture:UIPanGestureRecognizer {
+    private var trackedTouch:UITouch?
+    private var previousPoint:CGPoint?
+    private var latestPoint:CGPoint?
+    override func touchesBegan(_ touches:Set<UITouch>,with event:UIEvent) {
+        if trackedTouch == nil,let touch=touches.first {
+            trackedTouch=touch
+            let point=touch.location(in:view)
+            previousPoint=point;latestPoint=point
+            geometryTrace("pan touch origin=\(point)")
+        }
+        super.touchesBegan(touches,with:event)
+    }
+    override func touchesMoved(_ touches:Set<UITouch>,with event:UIEvent) {
+        updatePoint(touches)
+        super.touchesMoved(touches,with:event)
+    }
+    override func touchesEnded(_ touches:Set<UITouch>,with event:UIEvent) {
+        updatePoint(touches)
+        super.touchesEnded(touches,with:event)
+    }
+    private func updatePoint(_ touches:Set<UITouch>) {
+        if let touch=trackedTouch,touches.contains(touch) { latestPoint=touch.location(in:view) }
+    }
+    func consumeDelta()->CGPoint {
+        guard let previousPoint,let latestPoint else { return .zero }
+        self.previousPoint=latestPoint
+        return CGPoint(x:latestPoint.x-previousPoint.x,y:latestPoint.y-previousPoint.y)
+    }
+    override func reset() {
+        super.reset()
+        trackedTouch=nil;previousPoint=nil;latestPoint=nil
     }
 }
 
@@ -221,7 +266,7 @@ private struct GeometryViewport: UIViewRepresentable {
             let message = error.localizedDescription
             DispatchQueue.main.async { onFailure(message) }
         }
-        let pan=UIPanGestureRecognizer(target:coordinator,action:#selector(Coordinator.pan(_:)))
+        let pan=GeometryPanGesture(target:coordinator,action:#selector(Coordinator.pan(_:)))
         pan.maximumNumberOfTouches=1
         let pinch=UIPinchGestureRecognizer(target:coordinator,action:#selector(Coordinator.pinch(_:)))
         view.modelGestures=[pan,pinch]
@@ -266,12 +311,11 @@ private struct GeometryViewport: UIViewRepresentable {
                 modelEntity?.model?.materials=[material]
             }
         }
-        @objc func pan(_ gesture: UIPanGestureRecognizer) {
+        @objc func pan(_ gesture: GeometryPanGesture) {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
-            let delta = gesture.translation(in: gesture.view)
+            let delta=gesture.consumeDelta()
             geometryTrace("pan state=\(gesture.state.rawValue) delta=\(delta) beforeYaw=\(owner.camera.yaw)")
             owner.camera.rotate(horizontal: -Float(delta.x) * 0.008, vertical: Float(delta.y) * 0.008)
-            gesture.setTranslation(.zero, in: gesture.view)
             updateCamera()
             geometryTrace("pan afterYaw=\(owner.camera.yaw)")
         }

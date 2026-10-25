@@ -91,12 +91,11 @@ final class CaptureStudioUITests:XCTestCase {
         app.buttons["Zoom ind"].tap()
         XCTAssertNotEqual(viewport.value as? String,before)
         app.buttons["Nulstil 3D-visning"].tap()
-        let background=app.switches["geometry-light-background"]
+        let background=app.buttons["geometry-light-background"]
         XCTAssertTrue(background.isHittable)
-        XCTAssertLessThan(background.frame.width,100,"The switch itself is the target, not the entire label row")
-        print("BACKGROUND_SWITCH frame=\(background.frame) value=\(String(describing:background.value))")
+        XCTAssertGreaterThanOrEqual(background.frame.height,44,"The background choice has a complete touch target")
         background.tap()
-        let switched=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in String(describing:background.value ?? "")=="1" },object:nil)
+        let switched=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in background.value as? String == "Valgt" },object:nil)
         wait(for:[switched],timeout:10)
         let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport)?.background ?? 0)>200 },object:nil)
         wait(for:[bright],timeout:10)
@@ -106,6 +105,9 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertGreaterThan(lightPoints,50,"Teal points remain visible on the light canvas")
         print("POINTCLOUD_CANVAS measured dark=\(darkBrightness), light=\(lightBrightness); visible teal pixels dark=\(darkPoints), light=\(lightPoints); synthetic 48000 saved, 20000 displayed")
         screenshot("actual-point-cloud-light-SYNTHETIC")
+        app.buttons["geometry-dark-background"].tap()
+        let darkAgain=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportPixels(viewport)?.background ?? 255)<100 },object:nil)
+        wait(for:[darkAgain],timeout:10)
     }
     func testPortraitCameraAndLibrary()throws {
         let app=launch()
