@@ -5,16 +5,16 @@ on:
     paths:
       - 'Scan3DLiDAR/**'
       - '.github/workflows/scan3d-lidar.yml'
+  # All PRs must be checked, including changes to scripts and build policies.
   pull_request:
-    paths:
-      - 'Scan3DLiDAR/**'
-      - '.github/workflows/scan3d-lidar.yml'
   workflow_dispatch:
 permissions:
   contents: read
+# Do not cancel a previous commit's evidence when a new commit is pushed.
+# Each PR revision has an independent, reproducible Actions result.
 concurrency:
-  group: scan3d-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: scan3d-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 jobs:
   ios-build:
     name: Test and compile actual repository source
@@ -30,7 +30,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SCAN3D_SOURCE_COMMIT }}
+      - name: Fast quality preflight and reporter regression tests
+        id: fast_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/scan3d_preflight.py
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Select Xcode 26.3 and prepare Simulator
+        id: prepare_environment
         shell: bash
         run: |
           set -euo pipefail
@@ -53,9 +61,11 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as file: file.write('SCAN3D_SIMULATOR_ID='+simulator+'\n')
           PY
       - name: Test mission, current photo frame and exports
+        id: source_tests
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee "$RUNNER_TEMP/scan3d-source-tests.log") 2>&1
           cd Scan3DLiDAR
           python3 -m unittest discover -s Tests/packaging -v
           swiftc Sources/MissionGeometry.swift Tests/mission/main.swift -o "$RUNNER_TEMP/mission-tests"
@@ -75,6 +85,8 @@ jobs:
           swiftc Sources/ProjectStore.swift Sources/VideoTimeline.swift Sources/VideoRecorder.swift Tests/video/main.swift -o "$RUNNER_TEMP/video-tests"
           "$RUNNER_TEMP/video-tests"
       - name: Prepare Xcode project
+        id: prepare_xcode
+        if: ${{ !cancelled() && steps.prepare_environment.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -85,6 +97,8 @@ jobs:
           # Codec source tests finish before Simulator services compete for media/GPU resources.
           xcrun simctl boot "$SCAN3D_SIMULATOR_ID" || true
       - name: Compile unsigned iOS Simulator app
+        id: debug_build
+        if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
@@ -102,6 +116,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Run native camera and model-viewer UI tests
+        id: native_ui
+        if: ${{ !cancelled() && steps.debug_build.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -112,6 +128,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/Scan3DBuild" -resultBundlePath "$RUNNER_TEMP/Scan3D-UI.xcresult" \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/scan3d-ui.log"
       - name: Compile Release without test fixture activation
+        id: release_build
+        if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
@@ -120,6 +138,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/Scan3DRelease" CODE_SIGNING_ALLOWED=NO build \
             2>&1 | tee "$RUNNER_TEMP/scan3d-release.log"
       - name: Compile unsigned iOS device app
+        id: device_build
+        if: ${{ !cancelled() && steps.prepare_xcode.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
@@ -142,6 +162,20 @@ jobs:
           path: ${{ runner.temp }}/scan3d-unsigned-iphone
           if-no-files-found: error
           retention-days: 7
+      - name: Generate SHA-bound CI report
+        if: always()
+        shell: bash
+        run: |
+          python3 scripts/scan3d_ci_report.py \
+            --sha "$(git rev-parse HEAD)" \
+            --head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --event "${{ github.event_name }}" --run-id "${{ github.run_id }}" \
+            --log-directory "$RUNNER_TEMP" --output "$RUNNER_TEMP/scan3d-ci-status.json" \
+            --source "${{ steps.source_tests.outcome }}" \
+            --debug "${{ steps.debug_build.outcome }}" \
+            --ui "${{ steps.native_ui.outcome }}" \
+            --release "${{ steps.release_build.outcome }}" \
+            --device "${{ steps.device_build.outcome }}"
       - name: Export native screenshots and UI report
         if: always()
         shell: bash
@@ -159,6 +193,8 @@ jobs:
         with:
           name: scan3d-native-ui-evidence
           path: |
+            ${{ runner.temp }}/scan3d-ci-status.json
+            ${{ runner.temp }}/scan3d-source-tests.log
             ${{ runner.temp }}/scan3d-ui.log
             ${{ runner.temp }}/scan3d-release.log
             ${{ runner.temp }}/scan3d-device.log
