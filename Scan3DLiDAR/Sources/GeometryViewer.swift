@@ -34,6 +34,10 @@ struct StoredGeometryViewer: View {
     @State private var renderFailure: String?
     @State private var camera = GeometryCamera()
     @State private var lightBackground = false
+    private var cameraAccessibilityValue:String {
+        String(format:"Visningszoom %.1f gange. Drejning %.0f grader. Hældning %.0f grader.",
+            4.5/camera.distance,camera.yaw*180 / .pi,camera.pitch*180 / .pi)
+    }
 
     var body: some View {
         ScrollView {
@@ -44,10 +48,16 @@ struct StoredGeometryViewer: View {
                         Label("SIMULATOR — TESTDATA",systemImage:"testtube.2").font(.caption.bold()).foregroundStyle(.orange)
                     }
                     #endif
-                    GeometryViewport(prepared: prepared, camera: $camera, lightBackground: lightBackground,
-                        onFailure: { renderFailure = $0 })
+                    ZStack {
+                        GeometryViewport(prepared: prepared, camera: $camera, lightBackground: lightBackground,
+                            onFailure: { renderFailure = $0 }).accessibilityHidden(true)
+                    }
                         .frame(height: 340)
                         .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .accessibilityElement(children:.ignore)
+                        .accessibilityIdentifier("geometry-viewport")
+                        .accessibilityLabel("3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder.")
+                        .accessibilityValue(cameraAccessibilityValue)
                     HStack(spacing: 10) {
                         Button { camera.rotate(horizontal: -0.3) } label: { Image(systemName: "arrow.left") }
                             .accessibilityLabel("Drej modellen til venstre")
@@ -72,7 +82,7 @@ struct StoredGeometryViewer: View {
                         Text("Lys baggrund").fixedSize(horizontal:false,vertical:true).accessibilityHidden(true)
                         Spacer(minLength:12)
                         Toggle("Lys baggrund", isOn:$lightBackground)
-                            .labelsHidden().frame(width:52,height:44)
+                            .labelsHidden().frame(width:64,height:44)
                             .accessibilityLabel("Lys baggrund")
                             .accessibilityIdentifier("geometry-light-background")
                     }
@@ -176,12 +186,8 @@ private struct GeometryViewport: UIViewRepresentable {
     func makeUIView(context: Context) -> ARView {
         let view = GeometryARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
         view.renderOptions=[.disableCameraGrain,.disableMotionBlur,.disableDepthOfField]
-        view.accessibilityLabel = "3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder."
-        view.isAccessibilityElement = true
-        view.accessibilityIdentifier = "geometry-viewport"
         let coordinator = context.coordinator
         geometryTrace("make view=\(ObjectIdentifier(view)) coordinator=\(ObjectIdentifier(coordinator)) inputLight=\(lightBackground) ownerLight=\(coordinator.owner.lightBackground)")
-        coordinator.renderView=view
         let anchor = AnchorEntity(world: .zero)
         do {
             var descriptor = MeshDescriptor(name: "Scan3D stored geometry")
@@ -232,18 +238,11 @@ private struct GeometryViewport: UIViewRepresentable {
     final class Coordinator: NSObject {
         var owner: GeometryViewport
         let cameraEntity = PerspectiveCamera()
-        weak var renderView:ARView?
         var modelEntity:ModelEntity?
         private var appliedLightBackground:Bool?
         init(_ owner: GeometryViewport) { self.owner = owner }
         func updateCamera() {
             cameraEntity.look(at: .zero, from: owner.camera.position, relativeTo: nil)
-            // Keep the UIKit bridge's semantics stable across SwiftUI updates and direct gestures.
-            renderView?.isAccessibilityElement=true
-            renderView?.accessibilityIdentifier="geometry-viewport"
-            renderView?.accessibilityLabel="3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder."
-            renderView?.accessibilityValue=String(format:"Visningszoom %.1f gange. Drejning %.0f grader. Hældning %.0f grader.",
-                4.5/owner.camera.distance,owner.camera.yaw*180 / .pi,owner.camera.pitch*180 / .pi)
         }
         func updateAppearance(_ view:ARView) {
             geometryTrace("appearance view=\(ObjectIdentifier(view)) light=\(owner.lightBackground) applied=\(String(describing:appliedLightBackground))")

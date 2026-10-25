@@ -21,6 +21,18 @@ final class CaptureStudioUITests:XCTestCase {
         let attachment=XCTAttachment(screenshot:XCUIScreen.main.screenshot())
         attachment.name=title;attachment.lifetime = .keepAlways;add(attachment)
     }
+    private func moveInsideViewport(_ viewport:XCUIElement,in app:XCUIApplication,fast:Bool) {
+        let window=app.windows.firstMatch, windowFrame=window.frame, frame=viewport.frame
+        let origin=window.coordinate(withNormalizedOffset:CGVector(dx:0,dy:0))
+        let start=origin.withOffset(CGVector(dx:frame.minX+frame.width*(fast ? 0.25:0.7)-windowFrame.minX,
+                                           dy:frame.midY-windowFrame.minY))
+        let end=origin.withOffset(CGVector(dx:frame.minX+frame.width*(fast ? 0.75:0.35)-windowFrame.minX,
+                                         dy:frame.midY-windowFrame.minY))
+        XCTAssertTrue(frame.contains(start.screenPoint));XCTAssertTrue(frame.contains(end.screenPoint))
+        // Anchor the physical path to the stable window, while the model's accessibility value changes.
+        if fast { start.press(forDuration:0.01,thenDragTo:end,withVelocity:.fast,thenHoldForDuration:0) }
+        else { start.press(forDuration:0.2,thenDragTo:end) }
+    }
     private func assertWithinWidth(_ element:XCUIElement,in app:XCUIApplication,file:StaticString=#filePath,line:UInt=#line) {
         let window=app.windows.firstMatch.frame, frame=element.frame
         XCTAssertGreaterThan(frame.width,0,file:file,line:line)
@@ -130,14 +142,12 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertNotEqual(viewport.value as? String,reset)
         let pinched=viewport.value as? String
         print("VIEWPORT_BEFORE_SWIPE frame=\(viewport.frame) value=\(String(describing:pinched))")
-        viewport.swipeRight()
+        moveInsideViewport(viewport,in:app,fast:true)
         let debug=XCTAttachment(string:app.debugDescription);debug.name="native-hierarchy-after-swipe";debug.lifetime = .keepAlways;add(debug)
         let swiped=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != pinched },object:nil)
         wait(for:[swiped],timeout:3)
         let afterSwipe=viewport.value as? String
-        let dragStart=viewport.coordinate(withNormalizedOffset:CGVector(dx:0.35,dy:0.5))
-        let dragEnd=viewport.coordinate(withNormalizedOffset:CGVector(dx:0.7,dy:0.5))
-        dragStart.press(forDuration:0.2,thenDragTo:dragEnd)
+        moveInsideViewport(viewport,in:app,fast:false)
         let dragged=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != afterSwipe },object:nil)
         wait(for:[dragged],timeout:8)
         app.buttons["Nulstil 3D-visning"].tap()

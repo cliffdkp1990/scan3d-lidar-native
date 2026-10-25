@@ -37,9 +37,9 @@ Native UI-kontrollen omfatter også en særskilt syntetisk PLY-fil med 48.000 ge
 
 Punktantallet kontrolleres fra den synlige tilgængelighedstekst med respekt for systemets tusindtalsseparatorer. En første kørsel viste korrekte tal, men testen forventede uformaterede heltal. Rendering afventer desuden et minimum af faktisk farvede punktpixels i viewporten på både mørkt og lyst lærred; alene tilstedeværelsen af et view godkender ikke geometrivisningen.
 
-Målrettet Simulator-logning viste, at et tryk på kontaktens brede tilgængelighedsrække ikke altid udløste en ændring af SwiftUI-tilstanden. Baggrundskontakten har derfor sit eget område på 52 × 44 punkter med skjult visuel systemlabel og bevaret tilgængelighedstekst; den synlige rækketekst kan stadig vokse. Testen kræver både slået til-kontakt og lyst faktisk lærred. Pixels måles direkte fra 3D-elementets eget skærmbillede; medianlysstyrken og farvede punktpixels kontrolleres separat.
+Målrettet Simulator-logning viste, at et tryk på kontaktens brede tilgængelighedsrække ikke altid udløste en ændring af SwiftUI-tilstanden. Baggrundskontakten har derfor sit eget område på 64 × 44 punkter med skjult visuel systemlabel og bevaret tilgængelighedstekst; den synlige rækketekst kan stadig vokse. Testen kræver både slået til-kontakt og lyst faktisk lærred. Pixels måles direkte fra 3D-elementets eget skærmbillede; medianlysstyrken og farvede punktpixels kontrolleres separat.
 
-3D-gestus etablerer sin prioritet igen, når SwiftUI-hierarkiet monteres eller skifter, og opdaterer den native tilgængelighedsværdi direkte. Begyndelses- og slutdelta behandles begge. Trækkontrollen bevarer kravet om en faktisk ændret kameraværdi med en begrænset ventetid. Den begrænsede renderlog er kun aktiv i isolerede DEBUG-fixtures og medfølger CI-evidensen; den registrerer ikke brugerens rigtige optagelser.
+3D-gestus etablerer sin prioritet igen, når SwiftUI-hierarkiet monteres eller skifter, ; vinduets identitet, label og kameraværdi ejes af ét stabilt SwiftUI-element frem for at ændre UIKit-træet under hver bevægelse. Begyndelses- og slutdelta behandles begge. Trækkontrollen bevarer kravet om en faktisk ændret kameraværdi med en begrænset ventetid. Den begrænsede renderlog er kun aktiv i isolerede DEBUG-fixtures og medfølger CI-evidensen; den registrerer ikke brugerens rigtige optagelser.
 
 Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, roterede fotos, kamera/LiDAR-kalibrering, skarphed/eksponering på forskellige genstande, dybdefiltre ved kanter og tynde overflader, batteri/varme, termiske callbacks og framerate. Der er ingen signeret installation eller fysisk Safari-/iPhone-test påstået. Fotogrammetri, objektisolering og detaljeret video/foto-til-model er separate udestående projektdele.
 
@@ -53,3 +53,5 @@ Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, rote
 - https://developer.apple.com/documentation/arkit/arcamera/imageresolution
 - https://developer.apple.com/news/upcoming-requirements/?id=04282026a
 - https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md
+
+Hurtig og langsom bevægelse afprøves mellem præcise punkter inde i det faktiske 3D-billede. Teststien forankres i det stabile appvindue, mens modellens tilgængelighedsværdi ændres. Begge forløb kræver fortsat en faktisk ændret kameraværdi; de erstattes ikke af knaptryk eller et rent build-check.
