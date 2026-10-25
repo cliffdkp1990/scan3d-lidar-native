@@ -45,7 +45,6 @@ jobs:
           print(json.dumps(evidence,indent=2))
           pathlib.Path(os.environ['RUNNER_TEMP'],'scan3d-environment.json').write_text(json.dumps(evidence,indent=2))
           with open(os.environ['GITHUB_ENV'],'a') as file: file.write('SCAN3D_SIMULATOR_ID='+simulator+'\n')
-          subprocess.run(['xcrun','simctl','boot',simulator],check=False)
           PY
       - name: Test mission, current photo frame and exports
         shell: bash
@@ -76,6 +75,8 @@ jobs:
           if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
           cd Scan3DLiDAR
           xcodegen generate
+          # Codec source tests finish before Simulator services compete for media/GPU resources.
+          xcrun simctl boot "$SCAN3D_SIMULATOR_ID" || true
       - name: Compile unsigned iOS Simulator app
         shell: bash
         run: |
@@ -140,6 +141,7 @@ jobs:
             ${{ runner.temp }}/scan3d-release.log
             ${{ runner.temp }}/scan3d-device.log
             ${{ runner.temp }}/scan3d-environment.json
+            ${{ runner.temp }}/scan3d-video-diagnostics
             ${{ runner.temp }}/scan3d-viewer-trace.log
             ${{ runner.temp }}/scan3d-ui-attachments
           if-no-files-found: ignore

@@ -111,7 +111,23 @@ for orientation in ScanVideoOrientation.allCases {
             CVPixelBufferUnlockBaseAddress(image, .readOnly)
         }
     }
-    check(reader.status == .completed && count == details.frames, "every written frame decodes")
+    let allDecoded=reader.status == .completed && count == details.frames
+    if !allDecoded,let evidenceRoot=ProcessInfo.processInfo.environment["RUNNER_TEMP"] {
+        // Only this suite's generated solid-red movie is retained, never user recordings.
+        let destination=URL(fileURLWithPath:evidenceRoot).appendingPathComponent("scan3d-video-diagnostics")
+        do {
+            try FileManager.default.createDirectory(at:destination,withIntermediateDirectories:true)
+            try FileManager.default.copyItem(at:url,to:destination.appendingPathComponent(url.lastPathComponent))
+            let error=reader.error as NSError?
+            let report:[String:Any]=["syntheticOnly":true,"orientation":orientation.rawValue,
+                "expectedFrames":details.frames ?? -1,"decodedFrames":count,"readerStatus":reader.status.rawValue,
+                "errorDomain":error?.domain ?? "none","errorCode":error?.code ?? 0,
+                "errorDescription":error?.localizedDescription ?? "none","lastDecodedTimestamp":previous]
+            try JSONSerialization.data(withJSONObject:report,options:.prettyPrinted)
+                .write(to:destination.appendingPathComponent("decoder.json"),options:.atomic)
+        } catch { print("Could not preserve synthetic codec diagnostic: \(error)") }
+    }
+    check(allDecoded,"every written frame decodes: orientation=\(orientation.rawValue), expected=\(String(describing:details.frames)), decoded=\(count), status=\(reader.status.rawValue), error=\(String(describing:reader.error))")
 }
 
 let scaledURL = root.appendingPathComponent("scaled.mov")

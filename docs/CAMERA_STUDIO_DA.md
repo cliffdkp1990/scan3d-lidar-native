@@ -17,7 +17,7 @@ Mål: en tydeligere optageoplevelse, bedre faktiske fotos og mere stabil målt L
 
 ## Faktisk validering og resterende arbejde
 
-Workflowet vælger stabil Xcode 26.6 og en iOS 26.5 iPhone-Simulator på macOS 26. Den præcise Xcode-version, device-SDK og Simulator-runtime gemmes i `scan3d-environment.json` sammen med den konkrete revisions evidens. Opsamlingen afviser et ældre eller manglende miljøgrundlag. Simulatoren startes tidligt; det er stadig en syntetisk runtime-prøve. App Store Connect kræver Xcode 26 eller nyere siden 28. april 2026. Signeret distribution er ikke udført.
+Workflowet vælger stabil Xcode 26.6 og en iOS 26.5 iPhone-Simulator på macOS 26. Den præcise Xcode-version, device-SDK og Simulator-runtime gemmes i `scan3d-environment.json` sammen med den konkrete revisions evidens. Opsamlingen afviser et ældre eller manglende miljøgrundlag. Simulatoren startes efter kodeksuiten, så opstartstjenester ikke konkurrerer med dens fulde afkodning; runtime-prøven er stadig syntetisk. App Store Connect kræver Xcode 26 eller nyere siden 28. april 2026. Signeret distribution er ikke udført.
 
 CI skal køre eksisterende tests, nye luminans-/CoreVideo-/dybde-/bevægelses-/token-tests og kompilere appen. Native UI-tests starter appen med tydeligt mærket syntetisk testmotiv. Testprojektet bruger en isoleret midlertidig mappe; det har ingen adgang til brugerens normale projektmappe. Fixture-koden er DEBUG-betinget og aktiveres kun af testmiljøet.
 
@@ -55,3 +55,5 @@ Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, rote
 - https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md
 
 Hurtig og langsom bevægelse afprøves mellem præcise punkter inde i det faktiske 3D-billede. Teststien forankres i det stabile appvindue, mens modellens tilgængelighedsværdi ændres. Begge forløb kræver fortsat en faktisk ændret kameraværdi; de erstattes ikke af knaptryk eller et rent build-check.
+
+En fuld kodekkontrol fejlede én gang på den nye host. Kravet om afkodning af samtlige skrevne frames er uændret; ved fejl gemmes nu den konkrete syntetiske røde film, decoderstatus, frameantal og fejl i CI-artefakten. Ingen produktionsoptagelser indsamles. Renderloggens filskrivning foregår på en separat kø, så instrumentering ikke blokerer fingerbevægelser på hovedtråden.

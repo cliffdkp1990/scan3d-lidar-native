@@ -4,15 +4,20 @@ import SwiftUI
 import UIKit
 
 /// Isolated Simulator diagnostics; never records user captures or runs in Release.
+#if DEBUG
+private let geometryTraceQueue=DispatchQueue(label:"dk.scan3d.synthetic-viewer-trace",qos:.utility)
+#endif
 private func geometryTrace(_ message:@autoclosure()->String) {
     #if DEBUG
     guard ProcessInfo.processInfo.environment["SCAN3D_STUDIO_FIXTURE"]=="1" else { return }
-    let url=FileManager.default.temporaryDirectory.appendingPathComponent("Scan3D-Viewer-Trace.log")
     let data=Data("\(Date().timeIntervalSince1970) \(message())\n".utf8)
-    if let file=try? FileHandle(forWritingTo:url) {
-        defer { try? file.close() }
-        if let size=try? file.seekToEnd(),size<1024*1024 { try? file.write(contentsOf:data) }
-    } else { try? data.write(to:url,options:.atomic) }
+    geometryTraceQueue.async {
+        let url=FileManager.default.temporaryDirectory.appendingPathComponent("Scan3D-Viewer-Trace.log")
+        if let file=try? FileHandle(forWritingTo:url) {
+            defer { try? file.close() }
+            if let size=try? file.seekToEnd(),size<1024*1024 { try? file.write(contentsOf:data) }
+        } else { try? data.write(to:url,options:.atomic) }
+    }
     #endif
 }
 
