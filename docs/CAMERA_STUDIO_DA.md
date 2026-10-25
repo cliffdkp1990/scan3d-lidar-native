@@ -35,6 +35,8 @@ Native UI-kontrollen omfatter også en særskilt syntetisk PLY-fil med 48.000 ge
 
 Punktantallet kontrolleres fra den synlige tilgængelighedstekst med respekt for systemets tusindtalsseparatorer. En første kørsel viste korrekte tal, men testen forventede uformaterede heltal. Rendering afventer desuden et minimum af faktisk farvede punktpixels i viewporten på både mørkt og lyst lærred; alene tilstedeværelsen af et view godkender ikke geometrivisningen.
 
+En efterfølgende optagelse viste korrekt lyst lærred, mens testen mistede sit snævre opslag af UIKit-elementtypen under opdateringen. Kontrollen bruger nu visningens stabile identifikator og det samme målte skærmområde før og efter skiftet, verificerer kontaktens tilstand og kræver synlige punktpixels. 3D-gestus etablerer sin prioritet igen, når SwiftUI-hierarkiet monteres eller skifter, og opdaterer den native tilgængelighedsværdi direkte. Begyndelses- og slutdelta behandles begge. Trækkontrollen bevarer kravet om en faktisk ændret kameraværdi med en begrænset ventetid.
+
 Manglende fysisk evidens: højopløsningscallback/latens og samtidig video, roterede fotos, kamera/LiDAR-kalibrering, skarphed/eksponering på forskellige genstande, dybdefiltre ved kanter og tynde overflader, batteri/varme, termiske callbacks og framerate. Der er ingen signeret installation eller fysisk Safari-/iPhone-test påstået. Fotogrammetri, objektisolering og detaljeret video/foto-til-model er separate udestående projektdele.
 
 ## Primære API-kilder

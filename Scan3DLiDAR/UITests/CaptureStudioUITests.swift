@@ -35,9 +35,8 @@ final class CaptureStudioUITests:XCTestCase {
         }
         XCTFail("Control could not be reached by vertical scrolling: \(element.identifier)")
     }
-    private func viewportBrightness(_ viewport:XCUIElement,in app:XCUIApplication)->Double? {
+    private func viewportBrightness(_ frame:CGRect,in window:CGRect)->Double? {
         guard let image=XCUIScreen.main.screenshot().image.cgImage else { return nil }
-        let window=app.windows.firstMatch.frame, frame=viewport.frame
         let x=(frame.minX+28-window.minX)*CGFloat(image.width)/window.width
         let y=(frame.minY+28-window.minY)*CGFloat(image.height)/window.height
         guard x>=0,y>=0,x<CGFloat(image.width),y<CGFloat(image.height),
@@ -50,9 +49,8 @@ final class CaptureStudioUITests:XCTestCase {
         }
         return rendered ? (Double(pixel[0])+Double(pixel[1])+Double(pixel[2]))/3:nil
     }
-    private func visiblePointPixels(_ viewport:XCUIElement,in app:XCUIApplication)->Int {
+    private func visiblePointPixels(_ frame:CGRect,in window:CGRect)->Int {
         guard let image=XCUIScreen.main.screenshot().image.cgImage else { return 0 }
-        let window=app.windows.firstMatch.frame, frame=viewport.frame
         let sx=CGFloat(image.width)/window.width, sy=CGFloat(image.height)/window.height
         let crop=CGRect(x:(frame.minX-window.minX)*sx,y:(frame.minY-window.minY)*sy,
             width:frame.width*sx,height:frame.height*sy).integral
@@ -84,12 +82,13 @@ final class CaptureStudioUITests:XCTestCase {
         // SwiftUI formats integers for the user's locale (for example 48,000 or 48.000).
         XCTAssertEqual(pointCount.label.filter(\.isNumber),"4800020000",pointCount.label)
         XCTAssertFalse(app.staticTexts["Kan ikke vise 3D-filen"].exists)
-        let viewport=app.otherElements["geometry-viewport"]
+        let viewport=app.descendants(matching:.any).matching(identifier:"geometry-viewport").firstMatch
         XCTAssertTrue(viewport.waitForExistence(timeout:10))
-        let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in self.visiblePointPixels(viewport,in:app)>50 },object:nil)
+        let windowFrame=app.windows.firstMatch.frame, viewportFrame=viewport.frame
+        let drawn=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in self.visiblePointPixels(viewportFrame,in:windowFrame)>50 },object:nil)
         wait(for:[drawn],timeout:20)
-        let darkPoints=visiblePointPixels(viewport,in:app)
-        let darkBrightness=try XCTUnwrap(viewportBrightness(viewport,in:app))
+        let darkPoints=visiblePointPixels(viewportFrame,in:windowFrame)
+        let darkBrightness=try XCTUnwrap(viewportBrightness(viewportFrame,in:windowFrame))
         XCTAssertLessThan(darkBrightness,100,"Dark canvas renders dark pixels")
         screenshot("actual-point-cloud-dark-SYNTHETIC")
         let before=viewport.value as? String
@@ -99,10 +98,14 @@ final class CaptureStudioUITests:XCTestCase {
         let background=app.switches["Lys baggrund"]
         XCTAssertTrue(background.isHittable)
         background.tap()
-        let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportBrightness(viewport,in:app) ?? 0)>200 },object:nil)
-        wait(for:[bright],timeout:5)
-        let lightBrightness=try XCTUnwrap(viewportBrightness(viewport,in:app))
-        let lightPoints=visiblePointPixels(viewport,in:app)
+        let switched=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in String(describing:background.value ?? "")=="1" },object:nil)
+        wait(for:[switched],timeout:10)
+        let bright=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in (self.viewportBrightness(viewportFrame,in:windowFrame) ?? 0)>200 },object:nil)
+        wait(for:[bright],timeout:10)
+        XCTAssertTrue(viewport.exists,"Viewport keeps its semantic identifier after appearance changes")
+        XCTAssertEqual(viewport.frame,viewportFrame,"The measured image region remains in place")
+        let lightBrightness=try XCTUnwrap(viewportBrightness(viewportFrame,in:windowFrame))
+        let lightPoints=visiblePointPixels(viewportFrame,in:windowFrame)
         XCTAssertGreaterThan(lightPoints,50,"Teal points remain visible on the light canvas")
         print("POINTCLOUD_CANVAS measured dark=\(darkBrightness), light=\(lightBrightness); visible teal pixels dark=\(darkPoints), light=\(lightPoints); synthetic 48000 saved, 20000 displayed")
         screenshot("actual-point-cloud-light-SYNTHETIC")
@@ -127,7 +130,7 @@ final class CaptureStudioUITests:XCTestCase {
         XCTAssertTrue(open.waitForExistence(timeout:10));open.tap()
         XCTAssertTrue(app.staticTexts["Målt LiDAR-mesh"].waitForExistence(timeout:20))
         XCTAssertFalse(app.staticTexts["Kan ikke vise 3D-filen"].exists)
-        let viewport=app.otherElements["geometry-viewport"]
+        let viewport=app.descendants(matching:.any).matching(identifier:"geometry-viewport").firstMatch
         XCTAssertTrue(viewport.waitForExistence(timeout:10))
         screenshot("actual-realitykit-viewer-default-SYNTHETIC")
         let before=viewport.value as? String
@@ -148,7 +151,8 @@ final class CaptureStudioUITests:XCTestCase {
         let dragStart=viewport.coordinate(withNormalizedOffset:CGVector(dx:0.35,dy:0.5))
         let dragEnd=viewport.coordinate(withNormalizedOffset:CGVector(dx:0.7,dy:0.5))
         dragStart.press(forDuration:0.2,thenDragTo:dragEnd)
-        XCTAssertNotEqual(viewport.value as? String,afterSwipe)
+        let dragged=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in viewport.value as? String != afterSwipe },object:nil)
+        wait(for:[dragged],timeout:8)
         app.buttons["Nulstil 3D-visning"].tap()
         screenshot("actual-realitykit-viewer-reset-SYNTHETIC")
     }

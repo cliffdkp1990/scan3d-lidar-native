@@ -114,17 +114,34 @@ struct StoredGeometryViewer: View {
 
 /// Gestures beginning inside the model operate on it; scroll outside it to move the page.
 private final class GeometryARView:ARView {
-    var modelGestures:[UIGestureRecognizer]=[]
+    var modelGestures:[UIGestureRecognizer]=[] { didSet { prioritizeModelGestures() } }
+    private weak var coordinatedScrollView:UIScrollView?
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        prioritizeModelGestures()
+    }
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        prioritizeModelGestures()
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        prioritizeModelGestures()
+    }
+    func prioritizeModelGestures() {
+        guard !modelGestures.isEmpty else { return }
         var ancestor=superview
         while let current=ancestor {
             if let scroll=current as? UIScrollView {
-                for gesture in modelGestures { scroll.panGestureRecognizer.require(toFail:gesture) }
-                break
+                if coordinatedScrollView !== scroll {
+                    for gesture in modelGestures { scroll.panGestureRecognizer.require(toFail:gesture) }
+                    coordinatedScrollView=scroll
+                }
+                return
             }
             ancestor=current.superview
         }
+        coordinatedScrollView=nil
     }
 }
 
@@ -142,6 +159,7 @@ private struct GeometryViewport: UIViewRepresentable {
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = "geometry-viewport"
         let coordinator = context.coordinator
+        coordinator.renderView=view
         let anchor = AnchorEntity(world: .zero)
         do {
             var descriptor = MeshDescriptor(name: "Scan3D stored geometry")
@@ -181,18 +199,26 @@ private struct GeometryViewport: UIViewRepresentable {
         context.coordinator.owner = self
         context.coordinator.updateCamera()
         context.coordinator.updateAppearance(view)
-        view.accessibilityValue = String(format:"Visningszoom %.1f gange. Drejning %.0f grader. Hældning %.0f grader.",
-            4.5/camera.distance,camera.yaw*180 / .pi,camera.pitch*180 / .pi)
+        (view as? GeometryARView)?.prioritizeModelGestures()
     }
     static func dismantleUIView(_ view: ARView, coordinator: Coordinator) { view.scene.anchors.removeAll() }
 
     final class Coordinator: NSObject {
         var owner: GeometryViewport
         let cameraEntity = PerspectiveCamera()
+        weak var renderView:ARView?
         var modelEntity:ModelEntity?
         private var appliedLightBackground:Bool?
         init(_ owner: GeometryViewport) { self.owner = owner }
-        func updateCamera() { cameraEntity.look(at: .zero, from: owner.camera.position, relativeTo: nil) }
+        func updateCamera() {
+            cameraEntity.look(at: .zero, from: owner.camera.position, relativeTo: nil)
+            // Keep the UIKit bridge's semantics stable across SwiftUI updates and direct gestures.
+            renderView?.isAccessibilityElement=true
+            renderView?.accessibilityIdentifier="geometry-viewport"
+            renderView?.accessibilityLabel="3D-visning af projektets målte geometri. Brug dreje- og zoomknapperne nedenunder."
+            renderView?.accessibilityValue=String(format:"Visningszoom %.1f gange. Drejning %.0f grader. Hældning %.0f grader.",
+                4.5/owner.camera.distance,owner.camera.yaw*180 / .pi,owner.camera.pitch*180 / .pi)
+        }
         func updateAppearance(_ view:ARView) {
             guard appliedLightBackground != owner.lightBackground else { return }
             appliedLightBackground=owner.lightBackground
@@ -210,14 +236,14 @@ private struct GeometryViewport: UIViewRepresentable {
             }
         }
         @objc func pan(_ gesture: UIPanGestureRecognizer) {
-            guard gesture.state == .changed || gesture.state == .ended else { return }
+            guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
             let delta = gesture.translation(in: gesture.view)
             owner.camera.rotate(horizontal: -Float(delta.x) * 0.008, vertical: Float(delta.y) * 0.008)
             gesture.setTranslation(.zero, in: gesture.view)
             updateCamera()
         }
         @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
-            guard gesture.state == .changed || gesture.state == .ended else { return }
+            guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
             owner.camera.zoom(by: Float(gesture.scale))
             gesture.scale = 1
             updateCamera()
