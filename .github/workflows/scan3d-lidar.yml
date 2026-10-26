@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'Scan3DLiDAR/**'
+      - 'scripts/**'
+      - '.github/workflows/scan3d-doctor.yml'
       - '.github/workflows/scan3d-lidar.yml'
   # All PRs must be checked, including changes to scripts and build policies.
   pull_request:
