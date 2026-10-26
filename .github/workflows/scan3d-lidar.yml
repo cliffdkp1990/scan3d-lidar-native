@@ -23,8 +23,11 @@ jobs:
     timeout-minutes: 50
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      SCAN3D_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SCAN3D_SOURCE_COMMIT }}
       - name: Select Xcode 26.6 and prepare Simulator
         shell: bash
         run: |
@@ -52,6 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           cd Scan3DLiDAR
+          python3 -m unittest discover -s Tests/packaging -v
           swiftc Sources/MissionGeometry.swift Tests/mission/main.swift -o "$RUNNER_TEMP/mission-tests"
           "$RUNNER_TEMP/mission-tests"
           swiftc Sources/MissionGeometry.swift Tests/capture/main.swift -o "$RUNNER_TEMP/capture-tests"
@@ -121,6 +125,21 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/Scan3DDevice" CODE_SIGNING_ALLOWED=NO build \
             2>&1 | tee "$RUNNER_TEMP/scan3d-device.log"
+      - name: Package unsigned iPhone app for local signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SCAN3D_SOURCE_COMMIT"
+          python3 Scan3DLiDAR/scripts/package_unsigned_ipa.py \
+            --app "$RUNNER_TEMP/Scan3DDevice/Build/Products/Release-iphoneos/Scan3DLiDAR.app" \
+            --output "$RUNNER_TEMP/scan3d-unsigned-iphone" --source-commit "$SCAN3D_SOURCE_COMMIT"
+      - name: Save unsigned iPhone package
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-unsigned-iphone
+          path: ${{ runner.temp }}/scan3d-unsigned-iphone
+          if-no-files-found: error
+          retention-days: 7
       - name: Export native screenshots and UI report
         if: always()
         shell: bash

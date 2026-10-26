@@ -35,6 +35,14 @@ Ingen betalt tjeneste, automatisk cloud-upload, ny offentlig udgivelse eller æn
 
 ## Den oplevelse, der skal bygges
 
+### Windows-installationsspor — 26. oktober 2026
+
+Brugeren har kun iPhone og Windows og har ikke oplyst et betalt Apple Developer-medlemskab. Derfor undersøges lokal signering med gratis Apple-konto gennem AltStore Classic/AltServer. Det er dokumenteret som muligt af leverandøren, men er endnu ikke afprøvet med Scan3D. Apples gratis Xcode-vej kræver en Mac; den er ikke den eneste tekniske vej til en personlig test. TestFlight kræver fortsat Developer Program-medlemskab.
+
+Reviewworkflowet pakker nu den faktiske Release-iPhone-app som en usigneret IPA med filmanifest, SHA-256, platformkontrol og præcis kildecommit. Simulator-binaries og indlejrede provisioning-/nøglefiler afvises. Et færdigt IPA-build er endnu ikke en signeret eller installeret app. Windows/iPhone-opsætning, Apple-login, syvdagesfornyelse og fysisk kamera/LiDAR-afprøvning skal verificeres særskilt. Ingen tredjepartssoftware er installeret automatisk. Aktuel CI og pakke skal kontrolleres før aflevering.
+
+Primærkilder: [AltStore Windows](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows), [fornyelse og begrænsninger](https://faq.altstore.io/altstore-classic/your-altstore), [Apples kontotyper](https://developer.apple.com/programs/).
+
 **Peg på genstanden → Start → gå roligt rundt → få dit 3D-objekt.** Appen vælger passende indstillinger, tager billeder automatisk, kan optage video, gemmer løbende, kontrollerer dækningen og behandler modellen. Du skal kunne gennemføre den almindelige scanning på iPhone uden ZIP, filmapper eller en computer. Du skal stadig bevæge telefonen og vælge, hvilken genstand du vil scanne.
 
 Første skærm viser en stor **Ny scanning**-knap og visuelle kort med dine tidligere scanninger. På optageskærmen er kameraet centralt, med én kort instruktion, en dækningsring og Start/Pause/Stop. Resultatet viser din faktiske 3D-model med drej og zoom, kildefotos, video og **Del**. Avancerede valg ligger under Flere muligheder.
