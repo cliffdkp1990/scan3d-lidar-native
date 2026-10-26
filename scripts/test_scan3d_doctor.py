@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import patch
 import json
+from pathlib import Path
 from scan3d_doctor import classify, diagnose, redacted, maintain_issue
 
 REPO="cliffdkp1990/scan3d-lidar-native"
@@ -89,6 +90,13 @@ class DoctorTests(unittest.TestCase):
             result=maintain_issue(data)
         self.assertIn("already documented",result)
         self.assertFalse(any(a[:2]==("issue","comment") for a in calls))
+    def test_main_branch_checks_cover_doctor_scripts_and_workflow(self):
+        workflow = (Path(__file__).resolve().parent.parent
+                    / ".github/workflows/scan3d-lidar.yml").read_text(encoding="utf-8")
+        push = workflow.split("\\n  push:\\n", 1)[1].split("\\n  pull_request:", 1)[0]
+        self.assertIn("'scripts/**'", push)
+        self.assertIn("'.github/workflows/scan3d-doctor.yml'", push)
+        self.assertIn("'.github/workflows/scan3d-lidar.yml'", push)
     def test_secret_redaction(self):
         self.assertNotIn("ghp_ABCdef0123456789",redacted("ghp_ABCdef0123456789"))
 
