@@ -164,6 +164,54 @@ jobs:
           path: ${{ runner.temp }}/scan3d-unsigned-iphone
           if-no-files-found: error
           retention-days: 7
+      # Optional app bundle for local Windows-side signing. No Apple credentials are used.
+      # Only runs after every existing test and build gate has succeeded.
+      - name: Package unsigned IPA for local iPhone testing
+        id: unsigned_ipa
+        if: ${{ github.event_name == 'pull_request' && steps.fast_preflight.outcome == 'success' && steps.source_tests.outcome == 'success' && steps.debug_build.outcome == 'success' && steps.native_ui.outcome == 'success' && steps.release_build.outcome == 'success' && steps.device_build.outcome == 'success' }}
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Scan3DDevice/Build/Products/Release-iphoneos/Scan3DLiDAR.app"
+          test -d "$APP"
+          test -f "$APP/Info.plist"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
+          test "$BUNDLE_ID" = "dk.scan3dstudio.lidar"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist")
+          test -n "$EXECUTABLE"
+          test -f "$APP/$EXECUTABLE"
+          test ! -e "$APP/embedded.mobileprovision"
+          STAGING="$RUNNER_TEMP/scan3d-unsigned-ipa"
+          mkdir -p "$STAGING/Payload"
+          ditto "$APP" "$STAGING/Payload/Scan3DLiDAR.app"
+          (cd "$STAGING" && zip -qry Scan3D-unsigned-local-test.ipa Payload)
+          unzip -tq "$STAGING/Scan3D-unsigned-local-test.ipa"
+          shasum -a 256 "$STAGING/Scan3D-unsigned-local-test.ipa" > "$STAGING/Scan3D-unsigned-local-test.ipa.sha256"
+          printf 'PR_HEAD_SHA=%s\nACTUAL_CHECKOUT_SHA=%s\n' "$PR_HEAD_SHA" "$(git rev-parse HEAD)" > "$STAGING/BUILD_SHA.txt"
+          cat > "$STAGING/READ_ME_FIRST.txt" <<'TXT'
+          This IPA is UNSIGNED, not an Apple-signed or TestFlight-ready app.
+          It cannot be installed directly on an iPhone. It is packaged only after CI succeeds,
+          for optional user-approved signing and installation on the user's own device.
+          Do not upload Apple passwords, two-factor codes or signing certificates to GitHub.
+          For local installation, use a signing tool you trust on your own Windows computer.
+          A free Apple personal-team provisioning profile normally expires after seven days.
+          Verify the exact GitHub PR/run, app bundle ID and SHA before any installation.
+          Passing CI is not a physical LiDAR/camera test.
+          TXT
+      - name: Upload unsigned IPA for local signing only
+        if: ${{ github.event_name == 'pull_request' && steps.unsigned_ipa.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-unsigned-ipa-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/scan3d-unsigned-ipa/Scan3D-unsigned-local-test.ipa
+            ${{ runner.temp }}/scan3d-unsigned-ipa/Scan3D-unsigned-local-test.ipa.sha256
+            ${{ runner.temp }}/scan3d-unsigned-ipa/BUILD_SHA.txt
+            ${{ runner.temp }}/scan3d-unsigned-ipa/READ_ME_FIRST.txt
+          if-no-files-found: error
+          retention-days: 7
       - name: Generate SHA-bound CI report
         if: always()
         shell: bash
