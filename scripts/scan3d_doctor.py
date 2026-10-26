@@ -93,6 +93,13 @@ def maintain_issue(data):
         if any((ISSUE_MARKER+str(data["runId"])) in c.get("body","")
                for c in existing.get("comments",[])):
             return "This run was already documented in an issue comment."
+    advice={
+        "ui_test":"Inspect actual UI screenshots and the current Metal renderer or camera view; fix the failing UI behavior and rerun native UI tests.",
+        "code_or_build":"Inspect and fix the first source or Swift compiler error, then rerun CI.",
+        "toolchain":"Verify runner Xcode, simulator runtime and availability before changing app code.",
+        "permissions":"Check GitHub Actions token permissions and repository settings.",
+        "unknown":"Inspect job annotations and original log before choosing a fix.",
+    }.get(data["category"],"Inspect the first failing step before retrying.")
     body="\n".join(["Automated diagnostic. Not proof of a fixed build.",
                     "PR: #{}".format(data["prNumber"]),
                     "Branch: "+str(data["branch"]),
@@ -100,7 +107,7 @@ def maintain_issue(data):
                     "Run: "+str(data["url"]),
                     "First failure: "+str(data["firstError"]),
                     "Category: "+str(data["category"]),
-                    "Next: fix the actual source/RealityKit/test fault and rerun native CI.",
+                    "Next: "+advice,
                     "No automatic merge, deployment or physical iPhone test.",
                     "<!-- "+ISSUE_MARKER+str(data["runId"])+" -->"])
     if issue:

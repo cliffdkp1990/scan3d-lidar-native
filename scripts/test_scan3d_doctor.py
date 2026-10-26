@@ -74,6 +74,9 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("Appended",result)
         self.assertTrue(any(a[:2]==("issue","comment") for a in calls))
         self.assertFalse(any(a[:2]==("issue","edit") for a in calls))
+        text = next(a[-1] for a in calls if a[:2]==("issue","comment"))
+        self.assertIn("Metal renderer", text)
+        self.assertNotIn("RealityKit", text)
     def test_issues_do_not_duplicate_a_recorded_run(self):
         data=diagnose(RUN,job("Run native camera and model-viewer UI tests"),[PR],
                       "Test Case 'viewer' failed")
