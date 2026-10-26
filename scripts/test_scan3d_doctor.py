@@ -93,7 +93,7 @@ class DoctorTests(unittest.TestCase):
     def test_main_branch_checks_cover_doctor_scripts_and_workflow(self):
         workflow = (Path(__file__).resolve().parent.parent
                     / ".github/workflows/scan3d-lidar.yml").read_text(encoding="utf-8")
-        push = workflow.split("\\n  push:\\n", 1)[1].split("\\n  pull_request:", 1)[0]
+        push = workflow.split("\n  push:\n", 1)[1].split("\n  pull_request:", 1)[0]
         self.assertIn("'scripts/**'", push)
         self.assertIn("'.github/workflows/scan3d-doctor.yml'", push)
         self.assertIn("'.github/workflows/scan3d-lidar.yml'", push)
