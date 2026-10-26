@@ -57,7 +57,7 @@ class AutomatedChecks(unittest.TestCase):
         self.assertIn("Scan3D-unsigned-local-test.ipa.sha256",section)
         self.assertIn("PR_HEAD_SHA",section)
         self.assertIn("ACTUAL_CHECKOUT_SHA",section)
-        self.assertIn("test ! -e \\"$APP/embedded.mobileprovision\\"",section)
+        self.assertIn('test ! -e "$APP/embedded.mobileprovision"',section)
         self.assertIn("retention-days: 7",section)
         self.assertNotIn("altool",section)
         self.assertNotIn("notarytool",section)
