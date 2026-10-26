@@ -24,6 +24,19 @@ Ruleset **Scan3D main protection** (id `25845419`) er verificeret som `active`, 
 - Xcode- og Simulator-tests bruger syntetiske fixture-data; de erstatter **ikke** en fysisk iPhone 14 Pro Max LiDAR-/kameratest. Et usigneret iOS-build kan ikke installeres på telefonen.
 - Der kan ikke loves 3D-printparat rekonstruktion, TestFlight eller Apple-signering før de er separat bygget og afprøvet.
 
+## Valgfri, gratis iPhone-installationsvej (forberedt i draft PR #6)
+**Status: KUN forberedt og først tilgængelig efter grøn CI på denne nye ændring.**
+
+For at undgå krav om betalt Apple Developer Program og lokal Mac kan den eksisterende GitHub macOS-CI pakke den allerede beståede **usignerede** Release-device-app som `Scan3D-unsigned-local-test.ipa`. Artefaktet produceres **kun for en pull request efter at alle seks kvalitetsgates er grønne**. Det gemmes i 7 dage med SHA-256 og både PR-head-SHA og testet checkout-SHA, under navnet `scan3d-unsigned-ipa-<PR-head-SHA>`.
+
+Et IPA-arkiv er kun en ZIP med `Payload/Scan3DLiDAR.app`; det er **ikke Apple-signeret** og kan ikke installeres direkte ved at åbne det i iOS. En uafhængig lokal signeringsproces er nødvendig. På Windows kan brugeren frivilligt benytte eksempelvis [Sideloadly](https://sideloadly.io/) eller [AltStore Classic](https://altstore.io/) med sin egen Apple-konto. Det er **tredjepartsværktøjer**; gennemgå deres betingelser/sikkerhed og indtast aldrig kodeord eller tofaktorkoder i GitHub, ChatGPT, et issue eller en delt buildfil. Krav om USB/parkobling og Developer Mode kan gælde; følg værktøjets anvisninger.
+
+**Gratis Apple Personal Team-profiler varer normalt 7 dage** og kræver periodisk fornyelse via Windows. Denne fremgangsmåde er en privat, valgfri fysisk test og kan ikke erstatte rigtig TestFlight- eller App Store-signering. Der er endnu **ingen bekræftet installation eller virkelig LiDAR-test**. Apple-udviklermedlemskab er stadig ikke verificeret. Filer og originale optagelser bør sikkerhedskopieres før opdateringer af appen.
+
+Brug kun IPA-artefakter fra det **kendte** Scan3D-repository og en præcis grøn PR-CI-kørsel, ikke fra ukendte pull requests. Der oprettes ingen release, auto-installation, signeringsnøgler eller Apple-upload som del af CI.
+
+Officielt: [Apple om gratis Personal Team og syv-dages gyldighed](https://developer.apple.com/help/account/basics/about-your-developer-account); [Apple om betatest og TestFlight](https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases).
+
 ## Næste kontrollerede trin
 1. Gennemgå PR #1's MetalKit/kamera- og datalagringskode og de faktiske CI-artefakter.
 2. Gennemgå PR #6's privilegerede Doctor-workflow (`actions:write`, `issues:write`) og dokumentér godkendelsen.
