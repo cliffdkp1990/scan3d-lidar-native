@@ -19,18 +19,18 @@ jobs:
   ios-build:
     name: Test and compile actual repository source
     # Intel CI crashes inside RealityKit's texture manager before the fixture screen opens.
-    # Keep native rendering tests on Apple Silicon, where this app previously passed.
-    runs-on: macos-26
-    # The Xcode 26 runner needs a fresh Simulator build, native tests and two Release builds.
+    # macOS 26 arm64 did not acquire a host; use the documented macOS 15 Apple Silicon image.
+    runs-on: macos-15
+    # Fresh Simulator compilation, native tests and two Release builds remain required.
     timeout-minutes: 50
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       SCAN3D_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SCAN3D_SOURCE_COMMIT }}
-      - name: Select Xcode 26.6 and prepare Simulator
+      - name: Select Xcode 26.3 and prepare Simulator
         shell: bash
         run: |
           set -euo pipefail
@@ -39,10 +39,10 @@ jobs:
           import json,os,pathlib,subprocess,uuid
           def output(args): return subprocess.check_output(args,text=True).strip()
           devices=json.loads(output(['xcrun','simctl','list','devices','available','--json']))['devices']
-          matches=[(runtime,device) for runtime,items in devices.items() if runtime.endswith('.iOS-26-5')
+          matches=[(runtime,device) for runtime,items in devices.items() if runtime.endswith('.iOS-26-2')
                    for device in items if device['name'].startswith('iPhone')]
           matches.sort(key=lambda item:(item[1]['name']!='iPhone 16 Pro',item[1]['name']))
-          if not matches: raise SystemExit('Required iOS 26.5 Simulator is missing. Available runtimes: '+', '.join(devices))
+          if not matches: raise SystemExit('Required iOS 26.2 Simulator is missing. Available runtimes: '+', '.join(devices))
           runtime,device=matches[0]
           simulator=str(uuid.UUID(device['udid'])).upper()
           evidence={'schemaVersion':1,'xcodeVersion':output(['xcodebuild','-version']),'hostArchitecture':output(['uname','-m']),
