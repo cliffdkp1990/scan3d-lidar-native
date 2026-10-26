@@ -18,7 +18,8 @@ concurrency:
 jobs:
   ios-build:
     name: Test and compile actual repository source
-    runs-on: macos-26
+    # The arm64 pool failed to acquire a host; standard Intel runners are also free for this public repo.
+    runs-on: macos-26-intel
     # The Xcode 26 runner needs a fresh Simulator build, native tests and two Release builds.
     timeout-minutes: 50
     env:
@@ -43,7 +44,7 @@ jobs:
           if not matches: raise SystemExit('Required iOS 26.5 Simulator is missing. Available runtimes: '+', '.join(devices))
           runtime,device=matches[0]
           simulator=str(uuid.UUID(device['udid'])).upper()
-          evidence={'schemaVersion':1,'xcodeVersion':output(['xcodebuild','-version']),
+          evidence={'schemaVersion':1,'xcodeVersion':output(['xcodebuild','-version']),'hostArchitecture':output(['uname','-m']),
                     'iphoneosSDK':output(['xcrun','--sdk','iphoneos','--show-sdk-version']),
                     'simulatorRuntime':runtime,'simulatorDevice':device['name'],'simulatorId':simulator}
           print(json.dumps(evidence,indent=2))

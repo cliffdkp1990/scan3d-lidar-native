@@ -43,6 +43,8 @@ Reviewworkflowet pakker nu den faktiske Release-iPhone-app som en usigneret IPA 
 
 Primærkilder: [AltStore Windows](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows), [fornyelse og begrænsninger](https://faq.altstore.io/altstore-classic/your-altstore), [Apples kontotyper](https://developer.apple.com/programs/).
 
+Første pakningskørsel 40327622715 blev afbrudt før nogen trin startede, fordi GitHub ikke kunne tildele en arm64-runner. Workflowet bruger derfor nu standardlabelen `macos-26-intel`, som GitHub dokumenterer som gratis til offentlige repositories og med Xcode 26.6/iOS-SDK 26.5. Den faktiske værtarkitektur registreres sammen med toolchain og Simulator. Dette er en ny afprøvning; tidligere native godkendelser overføres ikke til en ny revision. Ingen betalt større runner er valgt.
+
 **Peg på genstanden → Start → gå roligt rundt → få dit 3D-objekt.** Appen vælger passende indstillinger, tager billeder automatisk, kan optage video, gemmer løbende, kontrollerer dækningen og behandler modellen. Du skal kunne gennemføre den almindelige scanning på iPhone uden ZIP, filmapper eller en computer. Du skal stadig bevæge telefonen og vælge, hvilken genstand du vil scanne.
 
 Første skærm viser en stor **Ny scanning**-knap og visuelle kort med dine tidligere scanninger. På optageskærmen er kameraet centralt, med én kort instruktion, en dækningsring og Start/Pause/Stop. Resultatet viser din faktiske 3D-model med drej og zoom, kildefotos, video og **Del**. Avancerede valg ligger under Flere muligheder.
