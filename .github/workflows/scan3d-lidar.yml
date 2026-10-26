@@ -18,8 +18,9 @@ concurrency:
 jobs:
   ios-build:
     name: Test and compile actual repository source
-    # The arm64 pool failed to acquire a host; standard Intel runners are also free for this public repo.
-    runs-on: macos-26-intel
+    # Intel CI crashes inside RealityKit's texture manager before the fixture screen opens.
+    # Keep native rendering tests on Apple Silicon, where this app previously passed.
+    runs-on: macos-26
     # The Xcode 26 runner needs a fresh Simulator build, native tests and two Release builds.
     timeout-minutes: 50
     env:
