@@ -12,3 +12,4 @@ Scan3DLiDARExports/
 web/safari-mvp/node_modules/
 web/safari-mvp/test-results/
 web/safari-mvp/playwright-report/
+integration/windows/.state/
