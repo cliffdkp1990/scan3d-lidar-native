@@ -65,5 +65,25 @@ class AutomatedChecks(unittest.TestCase):
         file=self.root/"scan3d-ui.log"
         file.write_text("normal\nTest Case '-[Scan3DTests.Capture testSomething]' failed (15.0 seconds).\n** TEST FAILED **\n")
         self.assertEqual(len(failures(file)),2)
+    def test_stack_update_preserves_head_checkout_and_both_iphone_packages(self):
+        flow=(Path(__file__).resolve().parent.parent /
+              ".github/workflows/scan3d-lidar.yml").read_text(encoding="utf-8")
+        self.assertIn("SCAN3D_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}",flow)
+        self.assertIn("ref: ${{ env.SCAN3D_SOURCE_COMMIT }}",flow)
+        self.assertIn("python3 -m unittest discover -s Tests/packaging -v",flow)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$SCAN3D_SOURCE_COMMIT"',flow)
+        self.assertIn("python3 Scan3DLiDAR/scripts/package_unsigned_ipa.py",flow)
+        self.assertIn('name: scan3d-unsigned-iphone\n',flow)
+        self.assertIn("name: scan3d-unsigned-ipa-${{ github.event.pull_request.head.sha }}",flow)
+        ordered=["Run native camera and model-viewer UI tests",
+                 "Compile Release without test fixture activation",
+                 "Compile unsigned iOS device app",
+                 "Package unsigned iPhone app for local signing",
+                 "Save unsigned iPhone package",
+                 "Package unsigned IPA for local iPhone testing",
+                 "Upload unsigned IPA for local signing only",
+                 "Generate SHA-bound CI report"]
+        positions=[flow.index("      - name: "+name) for name in ordered]
+        self.assertEqual(positions,sorted(positions))
 
 if __name__=="__main__":unittest.main()
