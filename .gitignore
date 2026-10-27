@@ -9,3 +9,6 @@ Scan3DLiDARExports/
 *.p12
 *.pfx
 *.mobileprovision
+web/safari-mvp/node_modules/
+web/safari-mvp/test-results/
+web/safari-mvp/playwright-report/

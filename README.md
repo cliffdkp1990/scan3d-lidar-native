@@ -27,3 +27,7 @@ The review CI also prepares `scan3d-unsigned-iphone`: the actual Release iPhone 
 For Windows with a free Apple account, AltStore Classic documents local signing through AltServer. This is a possible installation route, not a verified Scan3D installation. It needs initial Windows/iPhone setup and app refresh within the free account's seven-day period; AltStore itself uses one of three active app slots. See the official [Windows setup](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows) and [refresh limitations](https://faq.altstore.io/altstore-classic/your-altstore). The user handles Apple-account sign-in and device trust; this repository neither collects credentials nor installs signing tools automatically. Native LiDAR support and physical acceptance remain required.
 
 The maintained app plan is `docs/APPPLAN_DA.md`, included automatically by the registered local GitHub Flow profile. No per-update ZIP download or manual GitHub upload is needed.
+
+## Separate Safari web review
+
+`web/safari-mvp/` contains a separate local-first photo/project and OBJ/PLY viewer app. Run `node web/safari-mvp/tools/serve.mjs`; see [the Danish Safari guide](docs/SAFARI_WEB_DA.md) for storage, export, tests and limitations. It does not provide LiDAR/ARKit or photo-to-3D reconstruction. The native app, its tests and its workflow remain separate. This branch does not deploy or release either app.

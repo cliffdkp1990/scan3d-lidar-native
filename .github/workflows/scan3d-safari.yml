@@ -1,0 +1,79 @@
+name: Scan3D - isolated Safari web tests
+on:
+  pull_request:
+    paths: ['web/safari-mvp/**', '.github/workflows/scan3d-safari.yml', 'docs/SAFARI_WEB_DA.md']
+  push:
+    branches: [main]
+    paths: ['web/safari-mvp/**', '.github/workflows/scan3d-safari.yml', 'docs/SAFARI_WEB_DA.md']
+permissions:
+  contents: read
+concurrency:
+  group: scan3d-safari-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+jobs:
+  safari-web:
+    name: Safari web tests (WebKit, no physical iPhone)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web/safari-mvp
+    env:
+      SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      LIBGL_ALWAYS_SOFTWARE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Preserve native source and existing CI policies
+        id: isolation
+        working-directory: ${{ github.workspace }}
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_COMMIT: ${{ github.event.pull_request.base.sha }}
+        run: git diff --exit-code "$BASE_COMMIT" "$SOURCE_COMMIT" -- Scan3DLiDAR .github/workflows/scan3d-lidar.yml .github/workflows/scan3d-doctor.yml scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+          run_install: false
+      - name: Verify exact source and install locked test dependencies
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec playwright install --with-deps webkit
+      - name: Unit and security regression tests
+        id: unit
+        run: pnpm test
+      - name: WebKit browser flows at iPhone and desktop sizes
+        id: browser
+        run: pnpm test:browser
+      - name: Record exact tested revision
+        if: always()
+        env:
+          UNIT: ${{ steps.unit.outcome }}
+          BROWSER: ${{ steps.browser.outcome }}
+          ISOLATION: ${{ steps.isolation.outcome }}
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const checkout=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const isolation=process.env.GITHUB_EVENT_NAME!=='pull_request'||process.env.ISOLATION==='success';
+          const report={checkout,prHead:process.env.SOURCE_COMMIT,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,unit:process.env.UNIT,browser:process.env.BROWSER,node:process.version,nativeIsolation:process.env.ISOLATION,passed:checkout===process.env.SOURCE_COMMIT&&isolation&&process.env.UNIT==='success'&&process.env.BROWSER==='success',physicalIPhone:false,physicalCamera:false,SafariApp:false,deployed:false};
+          fs.writeFileSync('test-results/TESTED_COMMIT.json',JSON.stringify(report,null,2)+'\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,'Tested checkout: `'+checkout+'`\n\nPR head: `'+process.env.SOURCE_COMMIT+'`\n\nWebKit engine testing, not physical iPhone Safari or camera evidence.\n');
+          JS
+      - name: Save test reports and synthetic screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-safari-tests-${{ env.SOURCE_COMMIT }}
+          path: web/safari-mvp/test-results/
+          if-no-files-found: error
+          retention-days: 7

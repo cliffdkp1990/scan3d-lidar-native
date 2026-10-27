@@ -1,0 +1,12 @@
+{
+  "name": "scan3d-safari-review",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test",
+    "dev": "node tools/serve.mjs"
+  },
+  "devDependencies": { "@playwright/test": "1.64.1" },
+  "engines": { "node": ">=22" }
+}
