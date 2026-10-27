@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {webkit,devices} from '../../web/safari-mvp/node_modules/playwright/index.mjs';
+import {createRequire} from 'node:module';
+const {webkit,devices}=createRequire(new URL('../../web/safari-mvp/package.json',import.meta.url))('@playwright/test');
 const dir=process.env.BRIDGE_FIXTURE_DIR, output=process.env.BRIDGE_REPORT_DIR;
 assert.ok(dir&&output,'Requires actual Swift-generated fixtures and a report directory');
 await mkdir(output,{recursive:true});
