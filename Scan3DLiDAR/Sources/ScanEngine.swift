@@ -40,6 +40,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var focusAdjusting = false
     @Published private(set) var cameraPermissionDenied = false
     @Published private(set) var cameraIssue: String?
+    // Ignore late permission callbacks after the scanner is paused or removed.
+    private var cameraPermissionRequestID: UUID?
     private var viewportSize = CGSize.zero
     private var interfaceOrientation: UIInterfaceOrientation = .portrait
     private var qualityTimestamp: TimeInterval?
@@ -111,7 +113,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
 
     static var supportsLiDAR: Bool {
         ARWorldTrackingConfiguration.isSupported &&
-        ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth)
+        (ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) ||
+         ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth))
     }
 
     var isStudioFixture:Bool {
@@ -156,7 +159,38 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         guard !savingPhoto, !videoBusy else { return }
         self.session=session
         let permission=AVCaptureDevice.authorizationStatus(for:.video)
-        guard permission != .denied && permission != .restricted else {
+        if permission == .notDetermined {
+            // Request only once per active session. Never start ARKit using black
+            // frames while the first camera permission dialog is unanswered.
+            guard cameraPermissionRequestID == nil else { return }
+            let requestID=UUID()
+            cameraPermissionRequestID=requestID
+            running=false
+            trackingText="Afventer kameratilladelse"
+            guidanceText="Tillad adgang til kameraet for at begynde rigtig LiDAR-scanning."
+            AVCaptureDevice.requestAccess(for:.video) { [weak self,weak session] granted in
+                DispatchQueue.main.async { [weak self,weak session] in
+                    guard let self,let session,
+                          self.cameraPermissionRequestID == requestID,
+                          self.session === session else { return }
+                    self.cameraPermissionRequestID=nil
+                    guard granted else {
+                        self.cameraPermissionDenied=true
+                        self.cameraIssue="Kameraadgang mangler. Tillad kameraet i iPhones indstillinger, og tryk Start kamera."
+                        self.trackingText="Kameraadgang afvist"
+                        self.guidanceText=self.cameraIssue ?? "Kameraadgang mangler."
+                        self.running=false
+                        return
+                    }
+                    // If the permission prompt was left open while the app
+                    // entered the background, wait for a deliberate restart.
+                    guard UIApplication.shared.applicationState != .background else { return }
+                    self.start(using:session)
+                }
+            }
+            return
+        }
+        guard permission == .authorized else {
             cameraPermissionDenied=true
             cameraIssue="Kameraadgang mangler. Tillad kameraet i iPhones indstillinger, og tryk Start kamera."
             guidanceText=cameraIssue ?? "Kameraadgang mangler."
@@ -185,7 +219,13 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         } else { highResolutionSupported=false }
         photoSourceDescription=highResolutionSupported && preferHighResolution ? "Højopløsningsfoto" : "Kameraframe"
         config.planeDetection = [.horizontal, .vertical]
-        config.frameSemantics.insert(.smoothedSceneDepth)
+        // Prefer temporally smoothed LiDAR, but accept the discrete depth
+        // semantic on hardware that exposes only sceneDepth.
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
+            config.frameSemantics.insert(.smoothedSceneDepth)
+        } else {
+            config.frameSemantics.insert(.sceneDepth)
+        }
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
             config.sceneReconstruction = .meshWithClassification
         }
@@ -195,6 +235,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func stop() {
+        cameraPermissionRequestID=nil
         invalidateQuality()
         stopVideo(reason: "cameraPaused")
         session?.pause()
