@@ -1,0 +1,51 @@
+name: Scan3D Doctor - safe automatic CI triage
+
+on:
+  workflow_run:
+    workflows: ["Scan3D - source tests and iOS Simulator build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Specific failed run ID (leave empty for latest)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+concurrency:
+  group: scan3d-doctor-${{ github.event.workflow_run.id || inputs.run_id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      # Privileged workflow: NEVER execute PR code or downloaded PR artifacts.
+      - name: Checkout only trusted default-branch code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Diagnose failure, optionally bounded safe retry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id || 'latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/scan3d_doctor.py --repo "$GITHUB_REPOSITORY" \
+            --run-id "$RUN_ID" --output-dir "$RUNNER_TEMP/scan3d-doctor" --apply
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scan3d-doctor-${{ github.run_id }}
+          path: ${{ runner.temp }}/scan3d-doctor/scan3d-doctor-status.json
+          if-no-files-found: warn
+          retention-days: 7
