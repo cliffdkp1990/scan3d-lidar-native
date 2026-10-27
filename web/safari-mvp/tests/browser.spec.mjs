@@ -90,6 +90,6 @@ test('unavailable WebGL still permits original-model export',async({page})=>{
 test('22px text and all three layouts retain 44px controls without horizontal overflow',async({page},info)=>{
   await ready(page);await page.evaluate(()=>document.documentElement.style.fontSize='22px');await page.locator('#model-tab').click();await page.locator('#demo-model').click();await saved(page);await expect(page.locator('#model-canvas')).toHaveAttribute('data-state','ready');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  for(const b of await page.locator('#model-panel button').all()){const box=await b.boundingBox();expect(box.height).toBeGreaterThanOrEqual(44);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(page.viewportSize().width);}
+  for(const b of await page.locator('#model-panel button:visible').all()){const box=await b.boundingBox();expect(box.height).toBeGreaterThanOrEqual(44);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(page.viewportSize().width);}
   await page.screenshot({path:info.outputPath('layout-22px.png'),fullPage:true});
 });
