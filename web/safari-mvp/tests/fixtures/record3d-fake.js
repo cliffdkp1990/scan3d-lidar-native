@@ -9,11 +9,19 @@
     // actual H.264 decoder, canvas pixels, depth conversion and storage run.
     window.MediaStream=class {constructor(tracks){this.tracks=tracks;}getTracks(){return this.tracks;}};
     document.addEventListener('DOMContentLoaded',()=>{
-      const video=document.querySelector('#rgbd-video');let stream=null;
+      const video=document.querySelector('#rgbd-video');let stream=null,session=0;
       Object.defineProperty(video,'srcObject',{configurable:true,get:()=>stream,set:value=>{
         stream=value;
-        if(value){video.loop=true;video.src='./tests/fixtures/synthetic-rgbd.mp4';}
-        else{video.pause();video.removeAttribute('src');video.load();}
+        if(value){
+          // Reopen the actual MP4 decoder for every synthetic connection. Linux
+          // WebKit has no canvas.captureStream and may reuse a stale readyState
+          // when the same src is rebound after stop/pagehide.
+          video.pause();
+          video.removeAttribute('src');
+          video.loop=true;
+          video.src='./tests/fixtures/synthetic-rgbd.mp4?session='+(++session);
+          video.load();
+        } else {video.pause();video.removeAttribute('src');video.load();}
       }});
     });
   }
