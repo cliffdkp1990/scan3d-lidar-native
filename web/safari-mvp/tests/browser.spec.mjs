@@ -39,7 +39,7 @@ test('native OBJ export is byte-exact; invalid external materials cannot replace
   expect((await download(page,'#export-model')).toString()).toBe(obj);expect(external).toEqual([]);
 });
 test('STL download is permitted for a closed tetrahedron and rejected for an open mesh',async({page})=>{
-  const tetra=['v 0 0 0','v 1 0 0','v 0 1 0','v 0 0 1','f 1 3 2','f 1 2 4','f 2 3 4','f 3 1 4'].join('\\n')+'\\n';
+  const tetra=['v 0 0 0','v 1 0 0','v 0 1 0','v 0 0 1','f 1 3 2','f 1 2 4','f 2 3 4','f 3 1 4'].join('\n')+'\n';
   await ready(page);await create(page,'STL validering');await addModel(page);
   await expect(page.locator('#export-stl')).toBeHidden();
   await addModel(page,tetra,'lukket.obj');
