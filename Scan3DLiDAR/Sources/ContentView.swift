@@ -128,6 +128,7 @@ struct ContentView: View {
                             Label("Se seneste gemte 3D-data", systemImage: "view.3d")
                             .frame(maxWidth: .infinity, minHeight: 51)
                         }.buttonStyle(.bordered).tint(Atelier.rose)
+                        SafariProjectShare(project: project, store: engine.projectStore, synthetic: engine.isStudioFixture)
                     }
                     if let file = engine.exportedCloudURL {
                         ShareLink(item:file) { Label("Del PLY-fil",systemImage:"square.and.arrow.up") }

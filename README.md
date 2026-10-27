@@ -31,3 +31,7 @@ The maintained app plan is `docs/APPPLAN_DA.md`, included automatically by the r
 ## Separate Safari web review
 
 `web/safari-mvp/` contains a separate local-first photo/project and OBJ/PLY viewer app. Run `node web/safari-mvp/tools/serve.mjs`; see [the Danish Safari guide](docs/SAFARI_WEB_DA.md) for storage, export, tests and limitations. It does not provide LiDAR/ARKit or photo-to-3D reconstruction. The native app, its tests and its workflow remain separate. This branch does not deploy or release either app.
+
+## Native LiDAR og Safari
+
+Den native scanner kan automatisk klargøre en kontrolleret modelkopi til Safari-projektimport. Se [iPhone-forløb, test og begrænsninger](docs/LIDAR_SAFARI_DA.md). Safari får ikke direkte LiDAR-adgang.

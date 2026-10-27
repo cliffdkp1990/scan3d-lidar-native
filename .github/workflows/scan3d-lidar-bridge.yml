@@ -1,0 +1,137 @@
+name: Scan3D - native LiDAR to Safari project bridge
+on:
+  pull_request:
+    paths: ['Scan3DLiDAR/**', 'integration/lidar-safari/**', '.github/workflows/scan3d-lidar-bridge.yml', 'web/safari-mvp/**']
+  push:
+    branches: [main]
+    paths: ['Scan3DLiDAR/**', 'integration/lidar-safari/**', '.github/workflows/scan3d-lidar-bridge.yml', 'web/safari-mvp/**']
+permissions:
+  contents: read
+concurrency:
+  group: scan3d-bridge-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+env:
+  SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+jobs:
+  native-contract:
+    name: Produce and test actual Swift project archives
+    runs-on: macos-15
+    timeout-minutes: 12
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      BRIDGE_FIXTURE_DIR: ${{ runner.temp }}/bridge-fixtures
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Native regression and Swift to JavaScript contract
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          swiftc Scan3DLiDAR/Sources/GeometryExport.swift Scan3DLiDAR/Sources/GeometryPreview.swift \
+            Scan3DLiDAR/Sources/ProjectStore.swift Scan3DLiDAR/Sources/SafariProjectArchive.swift \
+            Scan3DLiDAR/Tests/safari-bridge/main.swift -o "$RUNNER_TEMP/safari-bridge-tests"
+          "$RUNNER_TEMP/safari-bridge-tests" | tee "$BRIDGE_FIXTURE_DIR-unit.log"
+          node integration/lidar-safari/check-contract.mjs
+          python3 - <<'PY'
+          import os,json,pathlib,hashlib,subprocess,re
+          folder=pathlib.Path(os.environ['BRIDGE_FIXTURE_DIR'])
+          files={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.iterdir() if p.is_file()}
+          report={'checkout':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+                  'sourceCommit':os.environ['SOURCE_COMMIT'],'runId':os.environ['GITHUB_RUN_ID'],
+                  'files':files,'syntheticFixtures':True,'physicalLiDAR':False,'signed':False}
+          report['nativeAssertions']=int(re.search(r'assertions passed: (\d+)',pathlib.Path(str(folder)+'-unit.log').read_text()).group(1))
+          report['nodeContract']='success'
+          (folder/'producer.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-safari-fixtures-${{ env.SOURCE_COMMIT }}
+          path: ${{ runner.temp }}/bridge-fixtures/
+          if-no-files-found: error
+          retention-days: 7
+  browser-contract:
+    name: Verify native archives in WebKit and preserve web regressions
+    needs: native-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BRIDGE_FIXTURE_DIR: ${{ runner.temp }}/bridge-fixtures
+      BRIDGE_REPORT_DIR: ${{ runner.temp }}/bridge-reports
+      LIBGL_ALWAYS_SOFTWARE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+          run_install: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-safari-fixtures-${{ env.SOURCE_COMMIT }}
+          path: ${{ runner.temp }}/bridge-fixtures/
+      - name: Verify producer commit and every fixture hash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          python3 - <<'PY'
+          import os,json,pathlib,hashlib
+          folder=pathlib.Path(os.environ['BRIDGE_FIXTURE_DIR'])
+          receipt=json.loads((folder/'producer.json').read_text())
+          assert receipt['checkout']==receipt['sourceCommit']==os.environ['SOURCE_COMMIT']
+          assert receipt['runId']==os.environ['GITHUB_RUN_ID']
+          expected={'native-ply.scan3d.json','native-obj.scan3d.json','original.ply','original.obj','synthetic.scan3d.json'}
+          assert set(receipt['files'])==expected
+          for name in expected: assert hashlib.sha256((folder/name).read_bytes()).hexdigest()==receipt['files'][name]
+          PY
+      - name: Existing web unit and browser regression tests
+        working-directory: web/safari-mvp
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec playwright install --with-deps webkit
+          pnpm test
+          pnpm test:browser
+      - name: Actual Swift exports in three WebKit viewports
+        run: |
+          set -euo pipefail
+          node web/safari-mvp/tools/serve.mjs > "$RUNNER_TEMP/bridge-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..50}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 0.1
+          done
+          node integration/lidar-safari/browser.mjs
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const checkout=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const web=JSON.parse(fs.readFileSync('web/safari-mvp/test-results/results.json'));
+          const bridge=JSON.parse(fs.readFileSync(process.env.BRIDGE_REPORT_DIR+'/browser.json'));
+          if(checkout!==process.env.SOURCE_COMMIT||web.stats.unexpected||web.stats.skipped||web.stats.flaky||bridge.results.length!==3)throw new Error('Incomplete bridge validation');
+          const report={checkout,prHead:process.env.SOURCE_COMMIT,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,webKitStats:web.stats,bridge:bridge.results,passed:true,physicalIPhone:false,physicalLiDAR:false,deployed:false,signed:false};
+          fs.writeFileSync(process.env.BRIDGE_REPORT_DIR+'/TESTED_COMMIT.json',JSON.stringify(report,null,2)+'\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,'Tested native producer and browser checkout: `'+checkout+'`. Synthetic files only; no physical LiDAR, signing or deployment.\n');
+          JS
+      - name: Save tests and synthetic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidar-safari-bridge-tests-${{ env.SOURCE_COMMIT }}
+          path: |
+            ${{ runner.temp }}/bridge-reports/
+            ${{ runner.temp }}/bridge-fixtures/producer.json
+            ${{ runner.temp }}/bridge-server.log
+            web/safari-mvp/test-results/
+          if-no-files-found: error
+          retention-days: 7
