@@ -7,3 +7,11 @@ main{max-width:1020px;margin:auto;padding:38px max(24px,env(safe-area-inset-righ
 @media(max-width:550px){.app-header{padding:12px 18px;gap:8px}.privacy-badge{font-size:.6rem}.brand{gap:7px;font-size:.7rem}.brand-light{display:none}main{padding-top:24px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}.intro{margin-bottom:20px}.intro p:not(.eyebrow){font-size:.85rem}.project-bar{padding:16px;flex-wrap:wrap;gap:12px}.project-bar>div:first-child{flex-basis:100%}.project-bar .actions{width:100%}.project-bar .actions button{flex:1}.tabs{gap:4px}.tabs button{font-size:.75rem;padding:10px 6px}.panel{padding:16px;border-radius:20px}.section-title{gap:8px}.camera-stage{min-height:300px}.camera-stage video{height:340px}.model-stage canvas{height:340px}.camera-actions>button{flex:1}.model-controls{gap:7px}.model-controls button{font-size:.75rem;padding:10px 12px}.photo-grid{grid-template-columns:repeat(2,1fr)}.photo-card img{height:150px}dialog{padding:16px}.backup .actions>button,.backup .actions>.button{width:100%}}
 @media(max-height:500px) and (orientation:landscape){.intro{display:none}main{padding-top:18px}.camera-stage video{height:280px}.camera-stage{min-height:240px}.model-stage canvas{height:280px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+/* Optional local depth receiver; no fixed text size or motion. */
+#depth-address{width:100%;max-width:24rem;min-height:44px;box-sizing:border-box}
+.rgbd-video{display:block;width:100%;max-height:24rem;object-fit:contain;background:#102e28;border-radius:1rem}
+.rgbd-video[hidden]{display:none}
+#depth-panel .section-title{flex-wrap:wrap}
+#rgbd-state{overflow-wrap:anywhere}
+.encoding-confirm{display:flex;align-items:center;gap:.75rem;min-height:44px;margin:1rem 0}
+.encoding-confirm input{width:24px;height:24px;flex:0 0 24px}
