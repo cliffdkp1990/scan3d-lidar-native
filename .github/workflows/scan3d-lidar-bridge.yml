@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 12
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      BRIDGE_FIXTURE_DIR: ${{ runner.temp }}/bridge-fixtures
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,6 +30,7 @@ jobs:
       - name: Native regression and Swift to JavaScript contract
         run: |
           set -euo pipefail
+          export BRIDGE_FIXTURE_DIR="$RUNNER_TEMP/bridge-fixtures"
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
           swiftc Scan3DLiDAR/Sources/GeometryExport.swift Scan3DLiDAR/Sources/GeometryPreview.swift \
             Scan3DLiDAR/Sources/ProjectStore.swift Scan3DLiDAR/Sources/SafariProjectArchive.swift \
@@ -60,14 +60,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      BRIDGE_FIXTURE_DIR: ${{ runner.temp }}/bridge-fixtures
-      BRIDGE_REPORT_DIR: ${{ runner.temp }}/bridge-reports
       LIBGL_ALWAYS_SOFTWARE: '1'
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SOURCE_COMMIT }}
           persist-credentials: false
+      - name: Locate isolated temporary test data
+        run: |
+          echo "BRIDGE_FIXTURE_DIR=$RUNNER_TEMP/bridge-fixtures" >> "$GITHUB_ENV"
+          echo "BRIDGE_REPORT_DIR=$RUNNER_TEMP/bridge-reports" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
