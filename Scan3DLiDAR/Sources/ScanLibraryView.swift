@@ -124,6 +124,7 @@ private struct ScanProjectView: View {
                     }
                 }.disabled(checking).buttonStyle(.bordered)
                 if !integrity.isEmpty { Text(integrity).font(.footnote) }
+                SafariProjectShare(project: project, store: store, synthetic: engine.isStudioFixture)
                 Text("Fotos").font(.title2.bold())
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 16) {
                     ForEach(project.currentCaptures) { capture in
