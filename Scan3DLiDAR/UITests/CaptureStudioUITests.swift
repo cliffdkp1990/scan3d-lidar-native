@@ -202,6 +202,18 @@ final class CaptureStudioUITests:XCTestCase {
         wait(for:[resetPixels],timeout:20)
         screenshot("actual-metal-viewer-reset-SYNTHETIC")
     }
+    func testAutomaticSafariProjectShare()throws {
+        let app=launch()
+        app.buttons["Resultat og eksport"].tap()
+        let share=app.buttons["safari-project-share"]
+        XCTAssertTrue(share.waitForExistence(timeout:15),"The portable model should prepare automatically")
+        for _ in 0..<4 { if share.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(share.isHittable)
+        XCTAssertTrue(app.staticTexts["safari-project-help"].exists)
+        XCTAssertEqual(app.staticTexts["safari-project-scope"].label,"Syntetisk testmodel — ingen målte LiDAR-data.")
+        screenshot("native-auto-safari-share-SYNTHETIC")
+        // The OS share sheet and physical Save to Files remain unverified.
+    }
     func testDarkImageGuidance()throws {
         let app=launch(dark:true)
         XCTAssertTrue(app.staticTexts["capture-guidance"].label.contains("mangler lys"))
