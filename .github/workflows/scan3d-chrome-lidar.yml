@@ -61,7 +61,7 @@ jobs:
           import {execFileSync} from 'node:child_process';
           const checkout=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
           let stats=null;try{stats=JSON.parse(fs.readFileSync('test-results/chrome-results.json')).stats;}catch{}
-          const passed=checkout===process.env.SOURCE_COMMIT&&process.env.UNIT==='success'&&process.env.BROWSER==='success'&&process.env.ISOLATION==='success'&&stats?.expected===84&&!stats.unexpected&&!stats.flaky&&!stats.skipped;
+          const passed=checkout===process.env.SOURCE_COMMIT&&process.env.UNIT==='success'&&process.env.BROWSER==='success'&&process.env.ISOLATION==='success'&&stats?.expected===87&&!stats.unexpected&&!stats.flaky&&!stats.skipped;
           const report={checkout,prHead:process.env.SOURCE_COMMIT,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,node:process.version,unit:process.env.UNIT,browser:process.env.BROWSER,nativeIsolation:process.env.ISOLATION,stats,passed,physicalIPhone:false,physicalLiDAR:false,record3DHardware:false,signed:false,deployed:false};
           fs.writeFileSync('test-results/CHROME_TESTED_COMMIT.json',JSON.stringify(report,null,2)+'\n');
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,'Exact tested checkout: `'+checkout+'`. Actual Google Chrome, synthetic RGBD and same-computer WebRTC only. No physical iPhone, LiDAR or Record3D evidence.\n');
