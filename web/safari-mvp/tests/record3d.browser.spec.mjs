@@ -5,8 +5,8 @@ import {parseGeometry} from '../geometry.mjs';
 const errors=new WeakMap();
 test.beforeEach(async({page})=>{const list=[];errors.set(page,list);page.on('pageerror',e=>list.push(e.message));});
 test.afterEach(async({page})=>expect(errors.get(page)).toEqual([]));
-test.afterAll(async({browser},info)=>writeFile(info.outputPath('engine.json'),JSON.stringify({project:info.project.name,browser:browser.version(),channel:info.project.use.channel||'webkit',physicalIPhone:false,physicalLiDAR:false},null,2)));
-async function ready(page){await page.goto('/?qa=record3d-fake');await expect(page.locator('body')).toHaveAttribute('data-ready','true');await page.locator('#depth-options').evaluate(e=>e.open=true);}
+test.afterAll(async({browser},info)=>writeFile(info.outputPath('engine.json'),JSON.stringify({project:info.project.name,browser:browser.version(),channel:info.project.use.channel||'webkit',syntheticTransport:info.project.use.browserName==='webkit'?'MP4 decoder with QA track adapter':'canvas MediaStream with QA peer',physicalIPhone:false,physicalLiDAR:false},null,2)));
+async function ready(page){await page.goto('/?qa=record3d-fake'+(test.info().project.use.browserName==='webkit'?'&mediaFixture=mp4':''));await expect(page.locator('body')).toHaveAttribute('data-ready','true');await page.locator('#depth-options').evaluate(e=>e.open=true);}
 async function original(page){await page.locator('#new-project').click();await expect(page.locator('#save-state')).toHaveAttribute('data-saved','true');await page.locator('#project-name').fill('Bevar original');await page.locator('#save-project').click();await expect(page.locator('#save-state')).toHaveAttribute('data-saved','true');}
 async function connect(page){await page.locator('#depth-address').fill('192.168.1.40');await page.locator('#depth-encoding').check();await page.locator('#connect-depth').click();await expect(page.locator('#rgbd-state')).toHaveAttribute('data-state','live',{timeout:15000});}
 async function download(page,selector){const event=page.waitForEvent('download');await page.locator(selector).click();const d=await event;expect(await d.failure()).toBeNull();return readFile(await d.path());}

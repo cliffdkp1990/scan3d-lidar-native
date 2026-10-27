@@ -2,10 +2,10 @@
 // Pixel conversion, video decoding, storage and downloads remain real browser code.
 (()=>{
   const state=window.__r3dTest={calls:[],closed:0,stopped:0,cameraRequests:0,badMetadata:false};
-  const canvasStream=typeof HTMLCanvasElement.prototype.captureStream==='function';
+  const canvasStream=typeof HTMLCanvasElement.prototype.captureStream==='function'&&new URLSearchParams(location.search).get('mediaFixture')!=='mp4';
   state.transport=canvasStream?'synthetic-canvas-track':'synthetic-mp4-track-adapter';
   if(!canvasStream){
-    // Windows WebKit lacks canvas.captureStream. Mock acquisition only; the
+    // WebKit tests use a repeatable MP4 source. Mock acquisition only; the
     // actual H.264 decoder, canvas pixels, depth conversion and storage run.
     window.MediaStream=class {constructor(tracks){this.tracks=tracks;}getTracks(){return this.tracks;}};
     document.addEventListener('DOMContentLoaded',()=>{
