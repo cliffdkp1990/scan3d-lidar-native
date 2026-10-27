@@ -15,7 +15,7 @@ const delayedRevoke = url => { if (url) { delayedURLs.add(url); setTimeout(() =>
 let viewer;
 const depth=new Record3DSession($('#rgbd-video'),(state,message)=>{
   $('#rgbd-state').textContent=message;$('#rgbd-state').dataset.state=state;
-  $('#rgbd-video').hidden=state!=='live';controls();
+  $('#rgbd-video').hidden=state==='stopped';controls();
 });
 try { viewer = new ModelViewer($('#model-canvas'), message => { $('#model-info').textContent = message; }); }
 catch { viewer = { gl: null, clear() {}, setGeometry() {}, action() {} }; $('#model-info').textContent = '3D-grafikken kunne ikke startes. Originale filer kan stadig eksporteres.'; }

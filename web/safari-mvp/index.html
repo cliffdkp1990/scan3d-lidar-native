@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#123e35">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <meta name="referrer" content="no-referrer">
-  <title>Scan3D Studio · Chrome-review</title>
+  <title>Scan3D Studio · Safari-review</title>
   <link rel="stylesheet" href="./app.css">
   <script type="module" src="./app.mjs"></script>
 </head>
@@ -17,9 +17,9 @@
     <span class="privacy-badge">Lokalt · ingen cloud</span>
   </header>
   <main id="workspace">
-    <div class="intro"><p class="eyebrow">CHROME · LOKAL REVIEWVERSION</p><h1>Dit motiv.<br>Dine muligheder.</h1>
+    <div class="intro"><p class="eyebrow">SAFARI PÅ IPHONE · LOKAL REVIEWVERSION</p><h1>Dit motiv.<br>Dine muligheder.</h1>
       <p>Tag fotos, gem projekter, og undersøg dine OBJ- og PLY-filer i 3D.</p>
-      <p class="scope">LiDAR kræver en iPhone-app. Chrome modtager modelprojekter eller en ekstern RGBD-stream. Fotos bliver ikke automatisk til en 3D-model.</p>
+      <p class="scope">LiDAR kræver en native iPhone-app. Åbn dens modelprojekter her i Safari. Fotos bliver ikke automatisk til en 3D-model.</p>
     </div>
     <div class="project-bar">
       <div><label for="project-name">Aktivt projekt</label><input id="project-name" maxlength="100" placeholder="Opret eller åbn et projekt" disabled>
@@ -59,6 +59,7 @@
     <section class="panel" id="depth-panel" aria-labelledby="depth-title">
       <div class="section-title"><h2 id="depth-title">Dybde fra din iPhone.</h2><span class="pill">Valgfri forbindelse</span></div>
       <p>På iPhone: Scan med den native Scan3D-app og importér dens projektfil her. Den bruger ARKit på en understøttet LiDAR-enhed.</p>
+      <details><summary>Hvorfor virker LiDAR ikke direkte her?</summary><p>Safari-websiden har ikke adgang til telefonens ARKit-LiDAR. Den native scanner skal først signeres, installeres og afprøves på din iPhone; den installation er endnu ikke verificeret. Gratis udviklersignering udløber efter syv dage, medmindre den fornyes. Sensoren udløber ikke.</p></details>
       <details id="depth-options"><summary>Live RGBD til Chrome på Windows</summary>
         <p>Kræver Record3D med Wi-Fi-tilkøb, åben på din iPhone, samt Chrome på en anden enhed på samme private Wi-Fi. Køb og installation udføres ikke af appen. Brug ikke Chrome på den samme iPhone under streaming.</p>
         <p>Start <strong>Start-Chrome-LiDAR.ps1</strong> på Windows. Start Wi-Fi-streaming i Record3D, og skriv appens viste IPv4-adresse. Ingen firewallændring eller upload.</p>
@@ -79,7 +80,7 @@
       <button id="import-legacy" hidden>Hent projekter fra den første Safari-prototype</button>
     </section>
   </main>
-  <footer>Scan3D Studio · separat Chrome-review · Native Swift/ARKit er bevaret.</footer>
+  <footer>Scan3D Studio · separat iPhone-review · Native Swift/ARKit er bevaret.</footer>
   <dialog id="library" aria-labelledby="library-title"><div class="section-title"><h2 id="library-title">Mine projekter</h2><button id="close-library">Luk</button></div><p id="library-note" role="status"></p><div id="projects"></div></dialog>
   <dialog id="photo-dialog" aria-labelledby="photo-title"><div class="section-title"><h2 id="photo-title">Projektfoto</h2><button id="close-photo">Luk foto</button></div><img id="full-photo" alt="Forstørret projektfoto"><a id="download-photo" class="button">Hent foto</a></dialog>
   <noscript><p class="noscript">Denne lokale app kræver JavaScript. Intet kamera eller lager åbnes uden det.</p></noscript>

@@ -2,6 +2,21 @@
 // Pixel conversion, video decoding, storage and downloads remain real browser code.
 (()=>{
   const state=window.__r3dTest={calls:[],closed:0,stopped:0,cameraRequests:0,badMetadata:false};
+  const canvasStream=typeof HTMLCanvasElement.prototype.captureStream==='function';
+  state.transport=canvasStream?'synthetic-canvas-track':'synthetic-mp4-track-adapter';
+  if(!canvasStream){
+    // Windows WebKit lacks canvas.captureStream. Mock acquisition only; the
+    // actual H.264 decoder, canvas pixels, depth conversion and storage run.
+    window.MediaStream=class {constructor(tracks){this.tracks=tracks;}getTracks(){return this.tracks;}};
+    document.addEventListener('DOMContentLoaded',()=>{
+      const video=document.querySelector('#rgbd-video');let stream=null;
+      Object.defineProperty(video,'srcObject',{configurable:true,get:()=>stream,set:value=>{
+        stream=value;
+        if(value){video.loop=true;video.src='./tests/fixtures/synthetic-rgbd.mp4';}
+        else{video.pause();video.removeAttribute('src');video.load();}
+      }});
+    });
+  }
   const realFetch=window.fetch.bind(window);
   window.fetch=async(input,options={})=>{
     const url=String(input);if(!url.includes('/__scan3d/'))return realFetch(input,options);
@@ -16,6 +31,7 @@
   window.RTCPeerConnection=class {
     constructor(config){state.config=config;this.iceGatheringState='complete';this.connectionState='new';}
     async setRemoteDescription(){
+      if(!canvasStream){queueMicrotask(()=>this.ontrack?.({track:{kind:'video',stop:()=>state.stopped++}}));return;}
       const canvas=document.createElement('canvas');canvas.width=640;canvas.height=240;
       const context=canvas.getContext('2d');
       const draw=()=>{context.fillStyle='#00ff00';context.fillRect(0,0,320,240);context.fillStyle='#e6d2aa';context.fillRect(320,0,320,240);};draw();

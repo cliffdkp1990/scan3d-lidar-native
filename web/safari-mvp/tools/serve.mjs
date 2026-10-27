@@ -8,7 +8,7 @@ const root=await realpath(fileURLToPath(new URL('../',import.meta.url)));
 const port=Number(process.env.PORT||4173),qa=process.argv.includes('--qa');
 const fixtures=new Set(['camera-fake','camera-denied','storage-denied','no-webgl','record3d-fake']);
 const relay=createRecord3DRelay({enabled:process.argv.includes('--record3d'),origin:'http://127.0.0.1:'+port});
-const types={'.html':'text/html; charset=utf-8','.mjs':'application/javascript; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.obj':'text/plain','.ply':'text/plain'};
+const types={'.html':'text/html; charset=utf-8','.mjs':'application/javascript; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.mp4':'video/mp4','.obj':'text/plain','.ply':'text/plain'};
 const server=http.createServer(async(req,res)=>{
   if(await relay(req,res))return;
   const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Permissions-Policy':'camera=(self), microphone=()','Cross-Origin-Resource-Policy':'same-origin'};

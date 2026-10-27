@@ -1,5 +1,7 @@
 # Chrome og lokal iPhone-dybde
 
+Seneste valg er **Safari på iPhone**. Webvisningen er skiftet tilbage til Safari-tekst; Chrome er fortsat en testet modtager på Windows. Safari/WebKit-test er ikke en fysisk Safari-installation og giver ikke i sig selv ARKit-adgang.
+
 Separat reviewgren oven på PR #10 ved de48b2cfd542ac341f9b168b5603e1e83fdb5786. Native Swift/ARKit, eksisterende PR'er, workflows og main-beskyttelse bevares. Ingen merge, deployment, signering eller køb.
 
 ## På iPhone først
@@ -36,5 +38,7 @@ CSP connect-src ændres fra none til self for relæet; ingen eksterne domæner. 
 ## Testdesign og faktiske grænser
 
 `node --test tests/*.test.mjs` tester eksisterende adfærd plus kalibrering, dybde, punktgrænser, integritet, IP/SDP, CSRF/token og langsomme/store HTTP-requests. `pnpm exec playwright test --config playwright.chrome.config.mjs` kører eksisterende forløb i Google Chrome og nye syntetiske RGBD-forløb ved 390×844, 844×390 og 1480×910. De nye forløb kører også i WebKit. Separat Chrome-test sender syntetiske pixels gennem rigtig loopback-WebRTC uden kamera/STUN. UI-testenes syntetiske signalering er ikke en rigtig Record3D-forbindelse.
+
+Windows WebKit har ikke canvas.captureStream. UI-testene bruger dér en tydeligt mærket syntetisk H.264-video og en track-adapter i testfixturet; videodekodning, pixelaflæsning, konvertering, lager og eksport er ægte browserkode. På Chrome og WebKit med canvas.captureStream bruges syntetiske canvas-tracks. Adapteren findes kun i QA-fixturet, ikke i produktmodulet. synthetic-rgbd.mp4 er vores egen 640×240-testvideo uden kamera, lyd eller telefondata.
 
 Eksisterende WebKit-regression og Swift→web-kontrakt bevares. Hver CI-kvittering registrerer checkout og PR-head. Denne tekst beskriver testdesignet; kun Actions og deres kvitteringer dokumenterer beståede commits. Fysisk iPhone/Chrome/Safari, LiDAR, Record3D-tilkøb, lokalnet, kamera og Gem i Filer er uverificeret uden særskilt evidens. Intet er deployet.
