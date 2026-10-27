@@ -3,6 +3,12 @@
 import { LIMITS } from './core.mjs';
 export const GEOMETRY_LIMITS = { vertices: 200000, triangles: 60000, displayPoints: 20000 };
 const bad = message => { throw new Error(message); };
+export function triangleNormal(a,b,c) {
+  const u=b.map((n,i)=>n-a[i]),v=c.map((n,i)=>n-a[i]);
+  const normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],length=Math.hypot(...normal);
+  if(!length)bad('OBJ indeholder en flade uden areal.');
+  return normal.map(n=>n/length);
+}
 const point = tokens => {
   if (tokens.length !== 3 || tokens.some(t => !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(t))) bad('Ugyldige koordinater.');
   const p = tokens.map(Number);
@@ -53,8 +59,7 @@ export function parseGeometry(text, name) {
     vertices = compact;
     for (const f of faces) {
       const a = vertices[f[0]], b = vertices[f[1]], c = vertices[f[2]];
-      const u = b.map((n, i) => n - a[i]), v = c.map((n, i) => n - a[i]);
-      if (Math.hypot(u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]) === 0) bad('OBJ indeholder en flade uden areal.');
+      triangleNormal(a,b,c);
     }
   }
   const lo = [...vertices[0]], hi = [...vertices[0]];

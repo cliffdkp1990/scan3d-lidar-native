@@ -1,4 +1,4 @@
-import { GEOMETRY_LIMITS } from './geometry.mjs';
+import { GEOMETRY_LIMITS, triangleNormal } from './geometry.mjs';
 const clamp = (n,a,b) => Math.max(a, Math.min(b,n));
 export class ModelViewer {
   constructor(canvas, onChange = () => {}) {
@@ -43,8 +43,7 @@ export class ModelViewer {
       const count = Math.min(points.length,GEOMETRY_LIMITS.displayPoints);
       for (let i=0;i<count;i++) values.push(...points[Math.floor(i*points.length/count)],0,0,0);
     } else for (const f of geometry.faces) {
-      const [a,b,c] = f.map(i=>points[i]), u=b.map((n,i)=>n-a[i]),v=c.map((n,i)=>n-a[i]);
-      const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+      const [a,b,c] = f.map(i=>points[i]),n=triangleNormal(a,b,c);
       for (const p of [a,b,c]) values.push(...p,...n);
     }
     this.count = values.length/6; const gl = this.gl;
