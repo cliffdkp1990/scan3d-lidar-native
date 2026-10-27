@@ -7,7 +7,7 @@ export class Record3DSession {
   stop(message='Forbindelsen er stoppet.') {
     const old=this.current;this.current=null;
     old?.controller.abort();old?.pc?.close();
-    this.video.srcObject?.getTracks().forEach(track=>track.stop());this.video.srcObject=null;
+    this.video.pause();this.video.srcObject?.getTracks().forEach(track=>track.stop());this.video.srcObject=null;this.video.load();
     this.update('stopped',message);
   }
   async start(address,{encodingConfirmed=false}={}) {
