@@ -35,3 +35,9 @@ The maintained app plan is `docs/APPPLAN_DA.md`, included automatically by the r
 ## Native LiDAR og Safari
 
 Den native scanner kan automatisk klargøre en kontrolleret modelkopi til Safari-projektimport. Se [iPhone-forløb, test og begrænsninger](docs/LIDAR_SAFARI_DA.md). Safari får ikke direkte LiDAR-adgang.
+
+## Chrome og iPhone-dybde · separat review
+
+Webversionen er nu rettet mod Chrome. Den bevarer eksisterende projekter og native modelimport. På Windows starter `web/safari-mvp/Start-Chrome-LiDAR.ps1` en lokal loopback-server og åbner Chrome, når serveren er klar. Et frivilligt Record3D-modul kan modtage lokal RGBD-video og gemme et enkelt dybdeudsnit som en ny PLY-punktsky. Record3D kræver Wi-Fi-tilkøb på telefonen og en anden enhed som modtager. Sensoridentitet og rigtig telefonforbindelse er ikke verificeret; modulet er ikke en direkte LiDAR-API i Chrome eller en komplet objektrekonstruktion.
+
+Se [opsætning, protokol og testgrænser](docs/CHROME_LIDAR_DA.md) samt [løbende native brug og iOS 27.0.1](docs/IPHONE_CONTINUOUS_USE_DA.md). SideStore er kun en undersøgt kandidat til fornyelse på telefonen. Der er ikke signeret, købt, installeret, merget eller deployet noget i denne reviewgren. Den eksisterende native projektkopi, som knappen stadig kalder Safari, kan også importeres i Chrome; format og native kildekode er bevaret.

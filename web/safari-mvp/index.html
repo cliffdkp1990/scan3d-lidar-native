@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#123e35">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <meta name="referrer" content="no-referrer">
-  <title>Scan3D Studio · Safari-review</title>
+  <title>Scan3D Studio · Chrome-review</title>
   <link rel="stylesheet" href="./app.css">
   <script type="module" src="./app.mjs"></script>
 </head>
@@ -14,12 +14,12 @@
   <a class="skip" href="#workspace">Gå til projektet</a>
   <header class="app-header">
     <a class="brand" href="./"><span class="brand-mark" aria-hidden="true">S<span>3</span></span>SCAN3D <span class="brand-light">STUDIO</span></a>
-    <span class="privacy-badge">Kun på din enhed</span>
+    <span class="privacy-badge">Lokalt · ingen cloud</span>
   </header>
   <main id="workspace">
-    <div class="intro"><p class="eyebrow">SAFARI · LOKAL REVIEWVERSION</p><h1>Dit motiv.<br>Dine muligheder.</h1>
+    <div class="intro"><p class="eyebrow">CHROME · LOKAL REVIEWVERSION</p><h1>Dit motiv.<br>Dine muligheder.</h1>
       <p>Tag fotos, gem projekter, og undersøg dine OBJ- og PLY-filer i 3D.</p>
-      <p class="scope">Ingen LiDAR i Safari. Fotos bliver ikke automatisk til en 3D-model.</p>
+      <p class="scope">LiDAR kræver en iPhone-app. Chrome modtager modelprojekter eller en ekstern RGBD-stream. Fotos bliver ikke automatisk til en 3D-model.</p>
     </div>
     <div class="project-bar">
       <div><label for="project-name">Aktivt projekt</label><input id="project-name" maxlength="100" placeholder="Opret eller åbn et projekt" disabled>
@@ -56,15 +56,30 @@
       <input id="model-file" type="file" accept=".obj,.ply" hidden aria-label="Vælg OBJ eller PLY-model">
       <p class="caption">Scan3D ASCII XYZ PLY og trekantet OBJ uden materialer. Maks. 8 MiB, 200.000 punkter og 60.000 trekanter. Punktskyer vises med højst 20.000 punkter. Ingen kalibreret opmåling.</p>
     </section>
+    <section class="panel" id="depth-panel" aria-labelledby="depth-title">
+      <div class="section-title"><h2 id="depth-title">Dybde fra din iPhone.</h2><span class="pill">Valgfri forbindelse</span></div>
+      <p>På iPhone: Scan med den native Scan3D-app og importér dens projektfil her. Den bruger ARKit på en understøttet LiDAR-enhed.</p>
+      <details id="depth-options"><summary>Live RGBD til Chrome på Windows</summary>
+        <p>Kræver Record3D med Wi-Fi-tilkøb, åben på din iPhone, samt Chrome på en anden enhed på samme private Wi-Fi. Køb og installation udføres ikke af appen. Brug ikke Chrome på den samme iPhone under streaming.</p>
+        <p>Start <strong>Start-Chrome-LiDAR.ps1</strong> på Windows. Start Wi-Fi-streaming i Record3D, og skriv appens viste IPv4-adresse. Ingen firewallændring eller upload.</p>
+        <label for="depth-address">Telefonens private IPv4-adresse</label>
+        <input id="depth-address" type="text" inputmode="decimal" autocomplete="off" placeholder="192.168.1.40" maxlength="15" aria-describedby="rgbd-limit">
+        <label class="encoding-confirm"><input id="depth-encoding" type="checkbox"> Jeg har kontrolleret Record3D: Wi-Fi max. depth = 3 m og HTTP-port = 80.</label>
+        <div class="actions"><button id="connect-depth" class="primary">Forbind Record3D</button><button id="stop-depth" disabled>Stop stream</button><button id="capture-depth" disabled>Gem dybdeudsnit</button></div>
+        <p id="rgbd-state" role="status" aria-live="polite" data-state="stopped">Ikke forbundet. Kameraet åbnes ikke automatisk.</p>
+        <video id="rgbd-video" class="rgbd-video" autoplay playsinline muted hidden aria-label="Record3D RGBD-video: venstre halvdel dybdefarver, højre halvdel kamera"></video>
+        <p class="caption" id="rgbd-limit">Sensoren bekræftes ikke af Wi-Fi-protokollen. Et udsnit er højst 20.000 kamerarelative punkter, omtrent 0,1–2,8 m fra tabsbehæftet dybdevideo. Ingen samlet objektrekonstruktion, farvet mesh eller kalibreret opmåling. Stopper ved skjult fane.</p>
+      </details>
+    </section>
     <section class="backup panel">
-      <div><p class="eyebrow">TAG EN KOPI MED</p><h2>Dit projekt. Samlet.</h2><p>Safari kan rydde lokalt lager. Gem en sikkerhedskopi med fotos, model og filhashes.</p></div>
+      <div><p class="eyebrow">TAG EN KOPI MED</p><h2>Dit projekt. Samlet.</h2><p>Browseren kan rydde lokalt lager. Gem en sikkerhedskopi med fotos, model og filhashes.</p></div>
       <div class="actions"><button id="prepare-export" disabled>Klargør sikkerhedskopi</button><a id="download-backup" class="button primary" hidden>Hent projektfil</a><button id="share-backup" hidden>Del projektfil…</button><button id="choose-import">Importér projekt</button></div>
       <input id="import-file" type="file" accept=".json,application/json" hidden aria-label="Importér Scan3D-projektfil">
       <p id="backup-help" class="caption">Import opretter altid en ny kopi og overskriver ikke andre projekter. Ingen filer uploades.</p>
       <button id="import-legacy" hidden>Hent projekter fra den første Safari-prototype</button>
     </section>
   </main>
-  <footer>Scan3D Studio · separat Safari-review · Native Swift/ARKit er bevaret.</footer>
+  <footer>Scan3D Studio · separat Chrome-review · Native Swift/ARKit er bevaret.</footer>
   <dialog id="library" aria-labelledby="library-title"><div class="section-title"><h2 id="library-title">Mine projekter</h2><button id="close-library">Luk</button></div><p id="library-note" role="status"></p><div id="projects"></div></dialog>
   <dialog id="photo-dialog" aria-labelledby="photo-title"><div class="section-title"><h2 id="photo-title">Projektfoto</h2><button id="close-photo">Luk foto</button></div><img id="full-photo" alt="Forstørret projektfoto"><a id="download-photo" class="button">Hent foto</a></dialog>
   <noscript><p class="noscript">Denne lokale app kræver JavaScript. Intet kamera eller lager åbnes uden det.</p></noscript>

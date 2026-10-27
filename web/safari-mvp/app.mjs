@@ -3,6 +3,7 @@ import { ProjectStore } from './store.mjs';
 import { CameraSession, decodePhoto, jpegCopy } from './camera.mjs';
 import { parseGeometry, demoOBJ } from './geometry.mjs';
 import { ModelViewer } from './viewer.mjs';
+import { Record3DSession } from './record3d-session.mjs';
 
 const $ = selector => document.querySelector(selector);
 const store = new ProjectStore();
@@ -12,6 +13,10 @@ const delayedURLs = new Set();
 const status = (message, error = false) => { $('#status').textContent = message; $('#status').dataset.error = String(error); };
 const delayedRevoke = url => { if (url) { delayedURLs.add(url); setTimeout(() => { URL.revokeObjectURL(url); delayedURLs.delete(url); }, 30000); } };
 let viewer;
+const depth=new Record3DSession($('#rgbd-video'),(state,message)=>{
+  $('#rgbd-state').textContent=message;$('#rgbd-state').dataset.state=state;
+  $('#rgbd-video').hidden=state!=='live';controls();
+});
 try { viewer = new ModelViewer($('#model-canvas'), message => { $('#model-info').textContent = message; }); }
 catch { viewer = { gl: null, clear() {}, setGeometry() {}, action() {} }; $('#model-info').textContent = '3D-grafikken kunne ikke startes. Originale filer kan stadig eksporteres.'; }
 const camera = new CameraSession($('#camera'), navigator.mediaDevices, state => {
@@ -26,6 +31,10 @@ function controls() {
   $('#start-camera').disabled = busy || !active || cameraState !== 'stopped';
   $('#take-photo').disabled = busy || !active || cameraState !== 'active';
   $('#stop-camera').hidden = cameraState === 'stopped'; $('#stop-camera').disabled = false;
+  $('#connect-depth').disabled=busy||depth.state!=='stopped';
+  $('#depth-address').disabled=depth.state!=='stopped';
+  $('#capture-depth').disabled=busy||depth.state!=='live';
+  $('#stop-depth').disabled=depth.state==='stopped';
   document.querySelectorAll('[data-view]').forEach(b => { b.disabled = busy || !active?.model || !viewer.gl; });
   $('#save-state').textContent = !active ? 'Intet projekt valgt' : dirty ? 'Kladde · endnu ikke gemt. Bevar fanen eller eksportér.' : 'Gemt lokalt · revision '+active.revision;
   $('#save-state').dataset.saved = String(Boolean(active && !dirty));
@@ -134,6 +143,16 @@ $('#project-name').addEventListener('input',()=>{if(active){active={...active,na
 $('#save-project').addEventListener('click',()=>perform(async()=>{await flush();render();status('Projektet er gemt lokalt.');}));
 $('#start-camera').addEventListener('click',async()=>{try{if(await camera.start())status('Kameraet er aktivt uden lyd. Tryk Tag foto.');}catch(error){status(error.message,true);}});
 $('#stop-camera').addEventListener('click',()=>{camera.stop();status('Kameraet er slukket.');});
+$('#connect-depth').addEventListener('click',async()=>{
+  camera.stop();try{await depth.start($('#depth-address').value.trim(),{encodingConfirmed:$('#depth-encoding').checked});}catch(error){status(error.message,true);}
+});
+$('#stop-depth').addEventListener('click',()=>depth.stop());
+$('#capture-depth').addEventListener('click',()=>perform(async()=>{
+  const text=depth.snapshot();parseGeometry(text,'Record3D-RGBD.ply');await flush();
+  const model=await makeAsset(new Blob([text],{type:'text/plain'}),'Record3D-RGBD.ply',{origin:'import'});
+  await commit({...newProject('Record3D RGBD · '+new Date().toLocaleString('da-DK')),model});
+  showTab('model',true);if(!dirty)status('RGBD-dybdeudsnit gemt som nyt projekt. Sensor ikke bekræftet; ingen fusion eller kalibreret opmåling.');
+}));
 $('#take-photo').addEventListener('click',()=>perform(()=>addPhoto(null,'Kamerafoto '+new Date().toLocaleTimeString('da-DK'),'camera')));
 $('#choose-photo').addEventListener('click',()=>$('#photo-file').click());
 for(const id of ['photo-file','capture-file'])$('#'+id).addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';if(file)perform(()=>addPhoto(file,file.name,'file'));});
@@ -176,8 +195,8 @@ $('#import-legacy').addEventListener('click',()=>perform(async()=>{
   for(const p of list)ready.push(await importedPhotos(p));const copies=await store.importLegacy(ready,'legacy-'+await sha256(new Blob([text])));
   active=copies[0];dirty=false;clearBackup();await refreshLibrary();render();status(copies.length+' tidligere projekt(er) importeret. Det oprindelige localStorage er bevaret.');
 }));
-document.addEventListener('visibilitychange',()=>{if(document.hidden)camera.stop();});
-window.addEventListener('pagehide',()=>camera.stop());
+document.addEventListener('visibilitychange',()=>{if(document.hidden){camera.stop();depth.stop();}});
+window.addEventListener('pagehide',()=>{camera.stop();depth.stop();});
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
 async function boot() {
   try{
