@@ -2,12 +2,13 @@ import { LIMITS, LEGACY_KEY, cleanName, safeFilename, newProject, validateProjec
 import { ProjectStore } from './store.mjs';
 import { CameraSession, decodePhoto, jpegCopy } from './camera.mjs';
 import { parseGeometry, demoOBJ } from './geometry.mjs';
+import { validatePrintableMesh, exportBinarySTL } from './stl.mjs';
 import { ModelViewer } from './viewer.mjs';
 
 const $ = selector => document.querySelector(selector);
 const store = new ProjectStore();
 let active = null, projects = [], dirty = false, busy = true, cameraState = 'stopped', modelId = null;
-let photoURLs = [], modelURL = null, backupURL = null, backupFile = null, dialogURL = null;
+let photoURLs = [], modelURL = null, stlGeometry = null, backupURL = null, backupFile = null, dialogURL = null;
 const delayedURLs = new Set();
 const status = (message, error = false) => { $('#status').textContent = message; $('#status').dataset.error = String(error); };
 const delayedRevoke = url => { if (url) { delayedURLs.add(url); setTimeout(() => { URL.revokeObjectURL(url); delayedURLs.delete(url); }, 30000); } };
@@ -72,7 +73,7 @@ function renderPhotos() {
 function renderModel() {
   const asset=active?.model;
   if ((asset?.id||null)===modelId) return;
-  modelId=asset?.id||null;viewer.clear();delayedRevoke(modelURL);modelURL=null;$('#export-model').hidden=true;
+  modelId=asset?.id||null;stlGeometry=null;$('#export-stl').hidden=true;viewer.clear();delayedRevoke(modelURL);modelURL=null;$('#export-model').hidden=true;
   $('#model-empty').hidden=Boolean(asset&&viewer.gl);$('#model-kind').textContent='Ingen model';
   $('#model-empty').textContent=asset&&!viewer.gl?'3D-grafik er ikke tilgængelig. Originalen kan stadig eksporteres.':'Åbn din model. Eller prøv en syntetisk vase.';
   if (!asset) { $('#model-info').textContent='Originale filer bevares. Modeller er ikke rekonstruktioner af dine fotos.';return; }
@@ -82,6 +83,8 @@ function renderModel() {
     const geometry=parseGeometry(text,asset.name);
     modelURL=URL.createObjectURL(asset.blob);$('#export-model').href=modelURL;$('#export-model').download=safeFilename(asset.name);$('#export-model').hidden=false;
     viewer.setGeometry(geometry);
+    try { validatePrintableMesh(geometry); stlGeometry=geometry; $('#export-stl').hidden=false; }
+    catch { stlGeometry=null; $('#export-stl').hidden=true; }
     $('#model-kind').textContent=asset.origin==='demo'?'Syntetisk demo':geometry.isPointCloud?'Importeret punktsky':'Importeret mesh';
     $('#model-info').textContent=geometry.vertices.length.toLocaleString('da-DK')+' punkter · '+geometry.faces.length.toLocaleString('da-DK')+' trekanter. '+(geometry.isPointCloud?'Viser højst 20.000 punkter. ':'')+'Filens egne enheder; ingen kalibreret opmåling.'+(viewer.gl?'':' WebGL mangler; originalen kan eksporteres.');
     controls();
@@ -146,6 +149,14 @@ $('#model-file').addEventListener('change',event=>{const file=event.target.files
   if(active.model){await flush();project={...newProject(active.name+' · ny model'),photos:active.photos};}
   await commit({...project,model:asset});showTab('model',true);
 });});
+$('#export-stl').addEventListener('click',()=>perform(async()=>{
+  if(!active?.model || !stlGeometry)throw new Error('Kun validerede, lukkede trekantmodeller kan eksporteres som STL.');
+  const blob=exportBinarySTL(stlGeometry);
+  const url=URL.createObjectURL(blob), link=document.createElement('a');
+  link.href=url;link.download=safeFilename(active.model.name.replace(/\.obj$/i,''))+'.stl';
+  document.body.append(link);link.click();link.remove();delayedRevoke(url);
+  status('STL klargjort. Kontrollér enheder, mål og printbarhed i sliceren før 3D-print.');
+}));
 $('#demo-model').addEventListener('click',()=>perform(async()=>{await flush();const p=newProject('Syntetisk 3D-demo');const asset=await makeAsset(new Blob([demoOBJ()],{type:'text/plain'}),'Demo-vase.obj',{origin:'demo'});await commit({...p,model:asset});showTab('model',true);}));
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>viewer.action(button.dataset.view)));
 for(const kind of ['photo','model']){
