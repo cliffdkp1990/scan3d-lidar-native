@@ -1,0 +1,2 @@
+# Optional: needed only for readback of a signed LZFSE container, not draft/CI.
+lzfse==0.4.2.post1

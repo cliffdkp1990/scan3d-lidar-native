@@ -1,7 +1,7 @@
 name: Scan3D - free Windows install preflight
 on:
   pull_request:
-    paths: ['integration/windows/**', 'docs/IPHONE_CONTINUOUS_USE_DA.md', '.github/workflows/scan3d-windows-preflight.yml']
+    paths: ['integration/windows/**', 'integration/iphone/**', 'docs/IPHONE_CONTINUOUS_USE_DA.md', '.github/workflows/scan3d-windows-preflight.yml']
 permissions:
   contents: read
 jobs:
@@ -35,9 +35,36 @@ jobs:
             renewalVerified = $false
           }
           $report | ConvertTo-Json | Set-Content windows-preflight-tested.json -Encoding utf8
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and validate unsigned iPhone automation draft without upload or signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s integration/iphone -p "test_*.py" -v
+          if ($LASTEXITCODE -ne 0) { throw 'Shortcut tests failed' }
+          python integration/iphone/build_shortcut.py --output iphone-shortcut-draft
+          if ($LASTEXITCODE -ne 0) { throw 'Shortcut draft build failed' }
+          python integration/iphone/build_shortcut.py --validate-plist iphone-shortcut-draft/Scan3D-Forny.UNSIGNED.plist
+          if ($LASTEXITCODE -ne 0) { throw 'Shortcut draft validation failed' }
+          @{
+            checkout = (git rev-parse HEAD)
+            runId = $env:GITHUB_RUN_ID
+            attempt = $env:GITHUB_RUN_ATTEMPT
+            checks = 10
+            passed = $true
+            signed = $false
+            physicalIPhone = $false
+            renewalVerified = $false
+            draft = (Get-Content iphone-shortcut-draft/SHORTCUT_DRAFT.json -Raw | ConvertFrom-Json)
+          } | ConvertTo-Json -Depth 10 | Set-Content iphone-shortcut-tested.json -Encoding utf8
       - uses: actions/upload-artifact@v4
         with:
           name: scan3d-windows-preflight-${{ env.SOURCE_COMMIT }}
-          path: windows-preflight-tested.json
+          path: |
+            windows-preflight-tested.json
+            iphone-shortcut-tested.json
+            iphone-shortcut-draft/
           if-no-files-found: error
           retention-days: 7

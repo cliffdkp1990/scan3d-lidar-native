@@ -28,6 +28,8 @@ Den aktuelle kontrollerede pakke kan hentes fra GitHub-run [40451480580](https:/
 
 ## Windows-fallback og fysisk accept
 
+En ny [iPhone-genvejskladde og genbrugelig bygger](../integration/iphone/README_DA.md) samler LocalDevVPN, fem sekunders ventetid og Classics fornyelseshandling, hvorefter Classic åbnes til faktisk resultatkontrol. Byggeren signerer, uploader, installerer og planlægger intet. Importerbar signering, hensigtenes kompatibilitet og rigtig fornyelse af Scan3D skal stadig bekræftes; en usigneret kladde er ikke en færdig iPhone-genvej.
+
 1. Kontrollér original IPA og installer med scriptet nedenfor. Bevar eksisterende scanninger og den originale usignerede pakke.
 2. Færdiggør AltServer og Apple-komponenterne på Windows. Den officielle [Windows-vejledning](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows) forventer desktop-iTunes og desktop-iCloud fra Apple. Denne computer har Store-iTunes; udskiftning er derfor ikke automatiseret. Biblioteker, Apple-programmer og brugerdata skal bevares. Manglende standard-DLL'er er et kontrolpunkt, ikke bevis for at alle alternative installationer fejler.
 3. Tilslut iPhone med datakabel, lås op og godkend computeren på telefonen. Windows' enhedsregistrering beviser hverken parring eller LiDAR.
