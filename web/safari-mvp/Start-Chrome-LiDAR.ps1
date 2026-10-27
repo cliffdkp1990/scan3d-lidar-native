@@ -1,4 +1,4 @@
-param([switch]$NoBrowser)
+﻿param([switch]$NoBrowser)
 $ErrorActionPreference='Stop'
 Set-Location -LiteralPath $PSScriptRoot
 $nodeCommand=Get-Command node -ErrorAction SilentlyContinue
