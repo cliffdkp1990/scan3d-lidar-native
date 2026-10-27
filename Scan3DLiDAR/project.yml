@@ -15,9 +15,20 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+    # XcodeGen explicitly writes these plist keys; the previous unsigned IPA
+    # lacked both version identifiers and iPhone Files app sharing keys.
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleShortVersionString: '0.1.0'
+        CFBundleVersion: '1'
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dk.scan3dstudio.lidar
+        MARKETING_VERSION: '0.1.0'
+        CURRENT_PROJECT_VERSION: '1'
         GENERATE_INFOPLIST_FILE: 'YES'
         INFOPLIST_KEY_NSCameraUsageDescription: 'Scan3D bruger kamera og LiDAR til fotos, video uden lyd og lokal 3D-geometri.'
         INFOPLIST_KEY_UIFileSharingEnabled: 'YES'
