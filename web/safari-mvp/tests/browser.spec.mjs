@@ -38,6 +38,20 @@ test('native OBJ export is byte-exact; invalid external materials cannot replace
   await expect(page.locator('#status')).toHaveAttribute('data-error','true');await expect(page.locator('#project-count')).toHaveText('1');
   expect((await download(page,'#export-model')).toString()).toBe(obj);expect(external).toEqual([]);
 });
+test('STL download is permitted for a closed tetrahedron and rejected for an open mesh',async({page})=>{
+  const tetra=['v 0 0 0','v 1 0 0','v 0 1 0','v 0 0 1','f 1 3 2','f 1 2 4','f 2 3 4','f 3 1 4'].join('\\n')+'\\n';
+  await ready(page);await create(page,'STL validering');await addModel(page);
+  await expect(page.locator('#export-stl')).toBeHidden();
+  await addModel(page,tetra,'lukket.obj');
+  await expect(page.locator('#export-stl')).toBeVisible();
+  const bytes=await download(page,'#export-stl');
+  expect(bytes.byteLength).toBe(84+4*50);
+  expect(bytes.readUInt32LE(80)).toBe(4);
+  expect(bytes.readFloatLE(84+12+12+4)).toBe(1);
+  await expect(page.locator('#status')).toContainText('Kontrollér enheder');
+  await page.reload();await saved(page);
+  await expect(page.locator('#export-stl')).toBeVisible();
+});
 test('new models preserve the previous saved model in a separate project',async({page})=>{
   await ready(page);await create(page,'QA original');await addModel(page);await addModel(page,obj.replace('v 1 0 0','v 2 0 0'),'new.obj');
   await expect(page.locator('#project-count')).toHaveText('2');await page.locator('#open-library').click();await page.getByRole('button',{name:/QA original 0 fotos/}).click();await saved(page);
