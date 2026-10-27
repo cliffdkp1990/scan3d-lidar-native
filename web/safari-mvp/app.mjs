@@ -153,7 +153,7 @@ $('#export-stl').addEventListener('click',()=>perform(async()=>{
   if(!active?.model || !stlGeometry)throw new Error('Kun validerede, lukkede trekantmodeller kan eksporteres som STL.');
   const blob=exportBinarySTL(stlGeometry);
   const url=URL.createObjectURL(blob), link=document.createElement('a');
-  link.href=url;link.download=safeFilename(active.model.name.replace(/\\.obj$/i,''))+'.stl';
+  link.href=url;link.download=safeFilename(active.model.name.replace(/\.obj$/i,''))+'.stl';
   document.body.append(link);link.click();link.remove();delayedRevoke(url);
   status('STL klargjort. Kontrollér enheder, mål og printbarhed i sliceren før 3D-print.');
 }));
