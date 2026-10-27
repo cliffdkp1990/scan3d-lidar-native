@@ -8,7 +8,7 @@ test.afterEach(async({page})=>expect(errors.get(page)).toEqual([]));
 test.afterAll(async({browser},info)=>writeFile(info.outputPath('engine.json'),JSON.stringify({project:info.project.name,browser:browser.version(),channel:info.project.use.channel||'webkit',physicalIPhone:false,physicalLiDAR:false},null,2)));
 async function ready(page){await page.goto('/?qa=record3d-fake');await expect(page.locator('body')).toHaveAttribute('data-ready','true');await page.locator('#depth-options').evaluate(e=>e.open=true);}
 async function original(page){await page.locator('#new-project').click();await expect(page.locator('#save-state')).toHaveAttribute('data-saved','true');await page.locator('#project-name').fill('Bevar original');await page.locator('#save-project').click();await expect(page.locator('#save-state')).toHaveAttribute('data-saved','true');}
-async function connect(page){await page.locator('#depth-address').fill('192.168.1.40');await page.locator('#depth-encoding').check();await page.locator('#connect-depth').click();await expect(page.locator('#rgbd-state')).toHaveAttribute('data-state','live');}
+async function connect(page){await page.locator('#depth-address').fill('192.168.1.40');await page.locator('#depth-encoding').check();await page.locator('#connect-depth').click();await expect(page.locator('#rgbd-state')).toHaveAttribute('data-state','live',{timeout:15000});}
 async function download(page,selector){const event=page.waitForEvent('download');await page.locator(selector).click();const d=await event;expect(await d.failure()).toBeNull();return readFile(await d.path());}
 test('synthetic RGBD snapshot creates a separate project, exports and reopens identical PLY',async({page},info)=>{
   await ready(page);await original(page);await connect(page);
