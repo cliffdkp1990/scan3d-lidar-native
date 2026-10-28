@@ -1,0 +1,81 @@
+name: Scan3D - auto-package each green main iPhone build
+
+# Only after this workflow reaches protected main. Never merge, sign or deploy.
+on:
+  workflow_run:
+    workflows:
+      - Scan3D - source tests and iOS Simulator build
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verified-main-bundle:
+    name: Unsigned one-click iPhone package for exact successful native main SHA
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.repository.full_name == github.repository
+    runs-on: windows-2025
+    timeout-minutes: 12
+    env:
+      AUDITED_SHA: ${{ github.event.workflow_run.head_sha }}
+      NATIVE_RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      # workflow_run has a more privileged context: use trusted default-branch
+      # code only, never checkout the triggering run's untrusted PR branch.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Assert the source is current protected main, not an older green commit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          if ($env:AUDITED_SHA -cne $sha) {
+            throw "Newer main exists or event did not match checked-out main. No stale installer is published."
+          }
+          if ($env:AUDITED_SHA -notmatch '^[a-f0-9]{40}$') { throw 'Invalid native source SHA' }
+      - name: Test installer controls offline without Apple signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tools/installer/Test-Scan3D.ps1
+          python -m unittest discover -s tools/installer -p 'test_*.py' -v
+      - name: Download the successful native run's unsigned device artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: scan3d-unsigned-iphone
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: ${{ runner.temp }}/scan3d-native
+      - name: Verify actual IPA and build one-click installation handoff
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $short = $env:AUDITED_SHA.Substring(0,10)
+          $name = "Scan3D_iPhone_verified_$short.zip"
+          $output = Join-Path $env:RUNNER_TEMP $name
+          python ./tools/installer/build_verified_package.py `
+            --artifact "$env:RUNNER_TEMP/scan3d-native" `
+            --installer-dir ./tools/installer `
+            --expected-sha "$env:AUDITED_SHA" `
+            --output "$output"
+          if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { throw 'No verified bundle' }
+          Write-Output "Verified exact-SHA native bundle $name; signing and installation still required."
+      - name: Store SHA-bound unsigned installation artifact in GitHub Actions only
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-newest-green-main-unsigned
+          path: |
+            ${{ runner.temp }}/Scan3D_iPhone_verified_*.zip
+            ${{ runner.temp }}/Scan3D_iPhone_verified_*.json
+          if-no-files-found: error
+          retention-days: 14
