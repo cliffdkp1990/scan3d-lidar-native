@@ -9,7 +9,7 @@ const SHELL=[
   './launch.mjs','./launch-core.mjs',
   './core.mjs','./store.mjs','./camera.mjs','./geometry.mjs',
   './stl.mjs','./viewer.mjs','./record3d-session.mjs',
-  './record3d-core.mjs','./record3d-session.mjs',
+  './record3d-core.mjs','./pwa-updates.mjs',
   './capture-guide.mjs','./capture-guide-core.mjs','./video.mjs',
   './manifest.webmanifest',
   './icons/scan3d-180.png','./icons/scan3d-192.png','./icons/scan3d-512.png'
