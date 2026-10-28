@@ -1,0 +1,57 @@
+name: Scan3D - read-only native build and IPA doctor
+
+# This diagnostic workflow is NOT the required macOS iOS compilation check.
+# workflow_run and schedule become active after this file enters default branch.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows:
+      - Scan3D - source tests and iOS Simulator build
+      - Scan3D - portable native Swift core regressions
+    types: [completed]
+  schedule:
+    - cron: "20 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  doctor:
+    name: Scan3D diagnostic report only (not native release)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      SCAN3D_AUDITED_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # On workflow_run, execute only default-branch code. Never execute untrusted
+      # upstream PR code in a privileged workflow_run context.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.repository.default_branch || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Test IPA packaging and SHA-bound doctor logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s Scan3DLiDAR/Tests/packaging -p 'test_*.py' -v
+          python3 -m unittest discover -s scripts -p 'test_scan3d_ci_doctor.py' -v
+      - name: Diagnose exact revision without changing GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/scan3d_ci_doctor.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --sha "${SCAN3D_AUDITED_SHA}" \
+            --output-dir "$RUNNER_TEMP/scan3d-doctor"
+      - name: Save downloadable diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/scan3d-doctor/
+          retention-days: 14
+          if-no-files-found: ignore

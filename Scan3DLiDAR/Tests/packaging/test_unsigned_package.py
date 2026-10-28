@@ -20,7 +20,9 @@ class UnsignedPackageTests(unittest.TestCase):
         self.app = self.root / 'Scan3DLiDAR.app'; self.app.mkdir()
         self.info = {'CFBundleIdentifier': 'dk.scan3dstudio.lidar', 'CFBundlePackageType': 'APPL',
                      'DTPlatformName': 'iphoneos', 'CFBundleSupportedPlatforms': ['iPhoneOS'],
-                     'CFBundleExecutable': 'Scan3DLiDAR', 'MinimumOSVersion': '17.0'}
+                     'CFBundleExecutable': 'Scan3DLiDAR', 'MinimumOSVersion': '17.0',
+                     'CFBundleShortVersionString': '0.1.0', 'CFBundleVersion': '1',
+                     'UIFileSharingEnabled': True, 'LSSupportsOpeningDocumentsInPlace': True}
         self.write_info(); self.binary()
     def tearDown(self):
         self.tmp.cleanup()
@@ -36,6 +38,9 @@ class UnsignedPackageTests(unittest.TestCase):
         result = self.build()
         self.assertFalse(result['installableAsIs']); self.assertFalse(result['physicalDeviceTested'])
         self.assertEqual(result['sourceCommit'], 'a' * 40)
+        self.assertEqual(result['marketingVersion'], '0.1.0')
+        self.assertEqual(result['buildVersion'], '1')
+        self.assertIs(result['documentsVisibleInFilesApp'], True)
         self.assertEqual(result['sha256'], module.digest(self.root / 'out/Scan3D-unsigned.ipa'))
         with zipfile.ZipFile(self.root / 'out/Scan3D-unsigned.ipa') as archive:
             self.assertIsNone(archive.testzip())
@@ -51,6 +56,31 @@ class UnsignedPackageTests(unittest.TestCase):
             original = self.info[field]; self.info[field] = value; self.write_info()
             with self.assertRaises(ValueError): self.build()
             self.info[field] = original
+    def test_rejects_missing_or_invalid_app_versions(self):
+        for field,value in [('CFBundleShortVersionString',None),
+                            ('CFBundleShortVersionString','invalid'),
+                            ('CFBundleVersion',None),
+                            ('CFBundleVersion','1 beta')]:
+            old=self.info.get(field)
+            if value is None: self.info.pop(field)
+            else: self.info[field]=value
+            self.write_info()
+            with self.subTest(field=field,value=value), self.assertRaisesRegex(ValueError,'CFBundle'):
+                self.build()
+            self.info[field]=old
+        self.write_info()
+    def test_rejects_missing_or_false_files_visibility(self):
+        for field in ('UIFileSharingEnabled','LSSupportsOpeningDocumentsInPlace'):
+            for value in (None,False):
+                with self.subTest(field=field,value=value):
+                    old=self.info[field]
+                    if value is None: self.info.pop(field)
+                    else: self.info[field]=value
+                    self.write_info()
+                    with self.assertRaisesRegex(ValueError,'Files'):
+                        self.build()
+                    self.info[field]=old
+        self.write_info()
     def test_rejects_truncated_binary(self):
         (self.app / 'Scan3DLiDAR').write_bytes(b'not a device app')
         with self.assertRaises(ValueError): self.build()

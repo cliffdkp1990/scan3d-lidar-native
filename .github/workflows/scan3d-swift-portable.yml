@@ -1,0 +1,64 @@
+name: Scan3D - portable native Swift core regressions
+
+# Runs Swift source-level and Foundation-only tests without a macOS runner.
+# It does NOT compile ARKit, prove LiDAR, sign IPA, or test a physical iPhone.
+on:
+  pull_request:
+    paths:
+      - 'Scan3DLiDAR/**'
+      - '.github/workflows/scan3d-swift-portable.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan3d-portable-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-portable:
+    name: Portable Swift core tests (not ARKit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SCAN3D_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SCAN3D_SOURCE_COMMIT }}
+          persist-credentials: false
+      - name: Verify exact pull-request head and Swift compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SCAN3D_SOURCE_COMMIT"
+          command -v swiftc
+          swiftc --version
+      - name: Parse actual native iPhone Swift source (syntax only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Parse without loading unavailable Linux ARKit/UIKit/RealityKit modules.
+          # This cannot replace macOS typechecking or iOS Simulator compilation.
+          swiftc -frontend -parse Scan3DLiDAR/Sources/*.swift
+      - name: Compile and execute portable Swift regression suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd Scan3DLiDAR
+          mkdir -p "$RUNNER_TEMP/scan3d-portable-tests"
+          check() {
+            local label="$1"
+            shift
+            echo "::group::$label"
+            swiftc -swift-version 5 "$@" -o "$RUNNER_TEMP/scan3d-portable-tests/$label"
+            "$RUNNER_TEMP/scan3d-portable-tests/$label"
+            echo "::endgroup::"
+          }
+          check mission Sources/MissionGeometry.swift Tests/mission/main.swift
+          check capture Sources/MissionGeometry.swift Tests/capture/main.swift
+          check export Sources/GeometryExport.swift Tests/export/main.swift
+          check geometry-preview Sources/GeometryExport.swift Sources/GeometryPreview.swift Tests/geometry-preview/main.swift
+          check automatic Sources/AutomaticCapture.swift Tests/automatic/main.swift
+          echo "Portable suites passed on: $SCAN3D_SOURCE_COMMIT"
