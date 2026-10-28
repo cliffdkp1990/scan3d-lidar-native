@@ -57,14 +57,14 @@ try{
     };
   };
   const receipt=await backup(fixture,dest,{retrieveFile});
-  assert.equal(receipt.filesVerified,28);
+  assert.equal(receipt.filesVerified,29);
   assert.equal(receipt.referenceWorkerSHA256,SOURCE_SHA);
   assert.deepEqual(receipt.originalAppIdentity,{
     id:'./',start_url:'./index.html',scope:'./'
   });
   assert.equal(receipt.containsUserScans,false);
   assert.equal(receipt.containsPrivateFiles,false);
-  assert.equal(receipt.containsVercelBuildConfig,false);
+  assert.equal(receipt.containsVercelBuildConfig,true);
   assert.equal(receipt.isCompleteDeploymentSource,false);
   assert.equal(receipt.readyForDeployment,false);
   assert.equal(receipt.writeToProduction,false);
@@ -73,8 +73,10 @@ try{
   const original=await readFile(join(dest,'original-public-source','sw.js'),'utf8');
   assert.equal(original,raw);
   const saved=JSON.parse(await readFile(join(dest,'PUBLIC_SOURCE_RECEIPT.json'),'utf8'));
-  assert.equal(saved.files.length,28);
+  assert.equal(saved.files.length,29);
   assert.equal(saved.files.find(x=>x.file==='sw.js').sha256,SOURCE_SHA);
+  const vercel=JSON.parse(await readFile(join(dest,'original-public-source','vercel.json'),'utf8'));
+  assert.equal(vercel.headers.find(x=>x.source==='/sw.js').headers[0].value,'no-cache');
   assert(!saved.files.some(x=>x.file.includes('projects')||x.file.includes('secret')));
   await assert.rejects(()=>backup(fixture,dest,{retrieveFile}),
     /EEXIST|file already exists/i,'Never overwrite the original backup');
@@ -90,7 +92,7 @@ try{
   await writeFile(join(fixture,'LIVE_PRODUCTION_AUDIT.json'),JSON.stringify(broken));
   await assert.rejects(()=>backup(fixture,join(temp,'broken'),{retrieveFile}),
     /Untrusted or changed/, 'Stale audit must fail closed');
-  console.log('Scan3D: 28 exact public source files, no login, no project data, app identity, source immutability, full SHA receipt and failure gates: PASS');
+  console.log('Scan3D: 28 public assets plus exact Vercel config, no login, no project data, app identity, source immutability, full SHA receipt and failure gates: PASS');
 }finally{
   await rm(temp,{recursive:true,force:true});
 }
