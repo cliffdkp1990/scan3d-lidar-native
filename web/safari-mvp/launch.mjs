@@ -6,9 +6,9 @@ export function initLaunchHelp() {
   function update() {
     const c=context();$('#launch-state').textContent=c.standalone?'Åbnet som app':'Åbnet i browser';
     $('#install-app').hidden=c.standalone;
-    $('#install-instructions').textContent=c.ios?'I Chrome på iPhone: Tryk Del ved adressen → Føj til hjemmeskærm → Tilføj. Hvis “Åbn som webapp” vises, slå det til. Åbn derefter Scan3D-ikonet.':installPrompt?'Tryk Installér nedenfor, og bekræft i browserens vindue.':'I Chrome: Åbn menuen ⋮ → Cast, gem og del → Installér side som app, hvis punktet findes. Ellers brug Opret genvej og Åbn som vindue, hvis browseren tilbyder det.';
+    $('#install-instructions').textContent=c.ios?(c.chromeIOS?'I Chrome på iPhone: Tryk Del ved adressen → Føj til hjemmeskærm → Tilføj. Hvis “Åbn som webapp” vises, slå det til. Åbn derefter Scan3D-ikonet.':'I Safari på iPhone: Tryk Del → Føj til hjemmeskærm → Tilføj. Åbn derefter Scan3D-ikonet. Ingen ZIP eller gentaget login.'):installPrompt?'Tryk Installér nedenfor, og bekræft i browserens vindue.':'I Chrome: Åbn menuen ⋮ → Cast, gem og del → Installér side som app, hvis punktet findes. Ellers brug Opret genvej og Åbn som vindue, hvis browseren tilbyder det.';
     $('#native-install').hidden=!installPrompt||c.ios;
-    $('#permission-guide').textContent=c.ios?'På iPhone: Åbn Indstillinger → Apps → Chrome → Kamera, hvis kontakten vises. I Chrome kan du også trykke på kamerategnet ved adressen og ændre tilladelsen. Vend tilbage, og tryk Start kamera.':'I Chrome: Tryk på indstillingssymbolet ved adressen → Websiteindstillinger → Kamera → Tillad. Vend tilbage, og tryk Start kamera.';
+    $('#permission-guide').textContent=c.ios?(c.chromeIOS?'På iPhone: Åbn Indstillinger → Apps → Chrome → Kamera, hvis kontakten vises. I Chrome kan du også trykke på kamerategnet ved adressen og ændre tilladelsen. Vend tilbage, og tryk Start kamera.':'På iPhone: Åbn Indstillinger → Apps → Safari → Kamera, eller ændr tilladelsen for dette websted. Vend tilbage, og tryk Start kamera.'):'I Chrome: Tryk på indstillingssymbolet ved adressen → Websiteindstillinger → Kamera → Tillad. Vend tilbage, og tryk Start kamera.';
   }
   async function diagnose() {
     let permission='unknown',policyAllowed;
@@ -34,7 +34,7 @@ export function initLaunchHelp() {
   window.addEventListener('scan3d:cameraerror',()=>{$('#camera-help').classList.add('needs-attention');$('#camera-help').textContent='Kamera blokeret? Få hjælp';});
   $('#copy-app-link').addEventListener('click',async()=>{
     const link=new URL('./',location.href).href;
-    try{await navigator.clipboard.writeText(link);$('#install-result').textContent='Appadressen er kopieret. Åbn den i Chrome.';}
+    try{await navigator.clipboard.writeText(link);$('#install-result').textContent='Appadressen er kopieret. Åbn den i din iPhone-browser.';}
     catch{$('#app-address').hidden=false;$('#app-address').value=link;$('#app-address').focus();$('#app-address').select();$('#install-result').textContent='Hold på adressen, og vælg Kopiér.';}
   });
   update();
