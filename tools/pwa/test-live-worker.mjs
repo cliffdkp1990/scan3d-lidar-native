@@ -27,7 +27,7 @@ let online=true;
 const cache={
   addAll:async assets=>{assert(assets.includes('./studio.html'));assert(assets.includes('./index.html'));},
   put:async(req,response)=>{stored.set(req.url,response)},
-  match:async(req)=>stored.get(typeof req==='string'?req:req.toString())
+  match:async(req)=>stored.get(req?.url||(typeof req==='string'?req:req.toString()))
 };
 const self={
   registration:{scope:'https://scan3d-studio-cliff.vercel.app/'},
