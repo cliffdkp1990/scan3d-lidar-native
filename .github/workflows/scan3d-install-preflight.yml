@@ -26,6 +26,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & ./tools/installer/Test-Scan3D.ps1
+      - name: Test SHA-bound automatic installer packager
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s tools/installer -p 'test_*.py' -v
       - name: Assert install helper does not need Apple credentials
         shell: pwsh
         run: |
@@ -58,26 +63,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & ./tools/installer/Start-Scan3D.ps1 -CheckOnly -PackageFolder "$env:RUNNER_TEMP/scan3d-ipa"
-      - name: Build offline one-click user ZIP without signing or executing installer
+      - name: Assemble package from validated exact SHA and built manifest
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $dest = Join-Path $env:RUNNER_TEMP 'scan3d-one-click'
-          New-Item -Path $dest -ItemType Directory -Force | Out-Null
-          @('Start-Scan3D.cmd','Start-Scan3D.ps1','Test-Scan3D.ps1','README_DA.md') | ForEach-Object {
-            Copy-Item -LiteralPath (Join-Path './tools/installer' $_) -Destination $dest
-          }
-          @('Scan3D-unsigned.ipa','SCAN3D_PACKAGE.json') | ForEach-Object {
-            Copy-Item -LiteralPath (Join-Path "$env:RUNNER_TEMP/scan3d-ipa" $_) -Destination $dest
-          }
-          $output = Join-Path $env:RUNNER_TEMP 'Scan3D_1_KLIK_iPhone_Windows_3863502b.zip'
-          Compress-Archive -Path (Join-Path $dest '*') -DestinationPath $output -CompressionLevel Optimal
-          if ((Get-Item -LiteralPath $output).Length -lt 1000000) { throw 'Suspiciously small installer ZIP' }
-          Write-Output "Prepared verified unsigned IPA and starter: $output"
+          python ./tools/installer/build_verified_package.py `
+            --artifact "$env:RUNNER_TEMP/scan3d-ipa" `
+            --installer-dir ./tools/installer `
+            --expected-sha 3863502b6aa9929bbe6fb204e0c71ed05e1ef0bb `
+            --output "$env:RUNNER_TEMP/Scan3D_1_KLIK_iPhone_Windows_3863502b.zip"
       - name: Upload one-click starter package
         uses: actions/upload-artifact@v4
         with:
           name: scan3d-one-click-Windows-3863502b
-          path: ${{ runner.temp }}/Scan3D_1_KLIK_iPhone_Windows_3863502b.zip
+          path: |
+            ${{ runner.temp }}/Scan3D_1_KLIK_iPhone_Windows_3863502b.zip
+            ${{ runner.temp }}/Scan3D_1_KLIK_iPhone_Windows_3863502b.json
           if-no-files-found: error
           retention-days: 14
