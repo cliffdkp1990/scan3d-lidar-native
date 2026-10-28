@@ -5,7 +5,7 @@ name: Scan3D Studio - read-only public PWA audit
 on:
   pull_request:
     paths:
-      - 'tools/pwa/check-live-studio.mjs'
+      - 'tools/pwa/**'
       - '.github/workflows/scan3d-studio-public-audit.yml'
   workflow_dispatch:
 
@@ -32,6 +32,15 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$AUDIT_COMMIT"
           node tools/pwa/check-live-studio.mjs "$RUNNER_TEMP/scan3d-public-audit"
+      - name: Produce a read-only candidate for the exact audited production worker
+        run: |
+          set -euo pipefail
+          node tools/pwa/patch-live-studio.mjs "$RUNNER_TEMP/scan3d-public-audit/sw.js" "$RUNNER_TEMP/scan3d-public-audit/sw.candidate.js"
+          node --check "$RUNNER_TEMP/scan3d-public-audit/sw.candidate.js"
+      - name: Prove candidate does not break offline use or touch project data
+        run: |
+          set -euo pipefail
+          node tools/pwa/test-live-worker.mjs "$RUNNER_TEMP/scan3d-public-audit/sw.js" "$RUNNER_TEMP/scan3d-public-audit/sw.candidate.js"
       - name: Store precise public-source evidence for review
         if: always()
         uses: actions/upload-artifact@v4
