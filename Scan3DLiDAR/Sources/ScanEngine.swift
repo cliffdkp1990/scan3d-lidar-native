@@ -65,13 +65,17 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     func sensorDiagnostic() -> Scan3DSensorDiagnostic {
         let fixture = isStudioFixture
         let frame = running && !fixture ? session?.currentFrame : nil
-        let depth = frame?.smoothedSceneDepth ?? frame?.sceneDepth
+        let selection = frame.flatMap { LiDARFrameQuality.selected($0) }
+        // Report the source actually approved for geometry. An available but
+        // untrusted smoothed map must not mask valid discrete LiDAR data.
+        let depth = selection?.depth ?? frame?.smoothedSceneDepth?.depthMap ?? frame?.sceneDepth?.depthMap
         let depthMode: String
-        if frame?.smoothedSceneDepth != nil { depthMode = "smoothedSceneDepth" }
-        else if frame?.sceneDepth != nil { depthMode = "sceneDepth" }
+        if let selection { depthMode = selection.origin.rawValue }
+        else if frame?.smoothedSceneDepth != nil { depthMode = "smoothedSceneDepth (usikker)" }
+        else if frame?.sceneDepth != nil { depthMode = "sceneDepth (usikker)" }
         else { depthMode = "ingen" }
         let resolution = depth.map {
-            "\(CVPixelBufferGetWidth($0.depthMap))x\(CVPixelBufferGetHeight($0.depthMap))"
+            "\(CVPixelBufferGetWidth($0))x\(CVPixelBufferGetHeight($0))"
         } ?? "ingen"
         let recent = frame != nil && lastPhysicalFrameAt.map {
             let seconds = Date().timeIntervalSince($0)
@@ -80,7 +84,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         let stable: Bool
         if let frame, case .normal = frame.camera.trackingState { stable = true }
         else { stable = false }
-        let center = frame.flatMap { LiDARFrameQuality.center($0) }
+        let center = selection?.center
         return Scan3DSensorDiagnostic(
             fixture: fixture,
             supportsLiDAR: Self.supportsLiDAR,
@@ -89,7 +93,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             recentFrame: recent,
             depthMode: depthMode,
             depthResolution: resolution,
-            confidenceMap: depth?.confidenceMap != nil,
+            confidenceMap: selection != nil || frame?.smoothedSceneDepth?.confidenceMap != nil || frame?.sceneDepth?.confidenceMap != nil,
             trackingNormal: stable,
             centerDepthMeters: center.map { Double($0.meters) },
             centerSupportedSamples: center?.supportedSamples ?? 0,
@@ -872,10 +876,11 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         let held=stableSince.map { frame.timestamp-$0 > 0.65 } ?? false
         guard fresh, let confirmed=CaptureValidation.approve(camera:cameraNow,forward:forwardNow,target:target,
             trackingGood:trackingGood,heldSteady:held,expectedSlot:token.slot,covered:capturedSlots,retake:retakeSlotIndex),
-            let center=LiDARFrameQuality.center(frame) else {
+            let selectedDepth=LiDARFrameQuality.selected(frame) else {
             photoFailed(token,message:"Kamera, vinkel eller dybde ændrede sig. Hold stille og prøv igen.",stopAutomatic:false)
             return
         }
+        let center=selectedDepth.center
         let slotKey=confirmed.slot.index
         let replacement=retakeSlotIndex==slotKey && capturedSlots.contains(slotKey)
         let intrinsics=frame.camera.intrinsics
@@ -885,6 +890,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             "arkit_frame_timestamp":frame.timestamp,"photo_source":source,
             "arkit_session_position_m":[tNow.x,tNow.y,tNow.z],"center_depth_m":center.meters,
             "depth_supported_samples":center.supportedSamples,"depth_patch_spread_m":center.spread,
+            "lidar_depth_source":selectedDepth.origin.rawValue,
             "depth_confidence_policy":"medium/high confidence; central coherent patch; no generated depth",
             "mission_slot_index":slotKey,"mission_ring":slotKey/12,"mission_sector":slotKey%12,
             "locked_target_arkit_world_m":[target.x,target.y,target.z],
