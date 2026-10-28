@@ -6,8 +6,12 @@ import { validatePrintableMesh, exportBinarySTL } from './stl.mjs';
 import { ModelViewer } from './viewer.mjs';
 import { Record3DSession } from './record3d-session.mjs';
 import { VIDEO, VideoRecorder, decodeVideo, videoType } from './video.mjs';
+import { initLaunchHelp } from './launch.mjs';
+import { CaptureGuide } from './capture-guide.mjs';
+import { PLANS, validMode } from './capture-guide-core.mjs';
 
 const $ = selector => document.querySelector(selector);
+const captureGuide = new CaptureGuide($('#capture-guide'));
 const store = new ProjectStore();
 let active = null, projects = [], dirty = false, busy = true, cameraState = 'stopped', modelId = null;
 let photoURLs = [], modelURL = null, stlGeometry = null, backupURL = null, backupFile = null, dialogURL = null;
@@ -34,6 +38,7 @@ const videoRecorder = new VideoRecorder({ onState: state => {
 } });
 function controls() {
   const locked = busy || recording;
+  captureGuide.render(active, locked, dirty);
   for (const id of ['new-project','choose-import','import-legacy','open-library','demo-model']) $('#'+id).disabled = locked;
   for (const id of ['save-project','choose-photo','choose-model','prepare-export','choose-video']) $('#'+id).disabled = locked || !active;
   $('#choose-video').disabled ||= (active?.videos || []).length >= VIDEO.count;
@@ -200,9 +205,15 @@ async function addPhoto(blob,name,source) {
   const asset=await makeAsset(copy.blob,name,{width:copy.width,height:copy.height});await commit({...active,photos:[...active.photos,asset]});
 }
 $('#new-project').addEventListener('click',()=>perform(async()=>{await flush();camera.stop();await commit(newProject('Projekt '+new Date().toLocaleString('da-DK',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})));showTab('photo');$('#project-name').focus();$('#project-name').select();}));
+for (const button of document.querySelectorAll('[data-capture-mode]')) button.addEventListener('click',async()=>{await perform(async()=>{
+  const mode = button.dataset.captureMode; if (!validMode(mode)) return;
+  if (!active) await commit(newProject(PLANS[mode].name));
+  captureGuide.select(active.id, mode); captureGuide.render(active, true, dirty);
+  showTab('photo'); status(dirty ? 'Projektet er en kladde. Gem en sikkerhedskopi, hvis lageret ikke kan bruges.' : 'Vejledningen er valgt. Kameraet er slukket.', dirty);
+});if(button.getAttribute('aria-pressed')==='true')$('#start-camera').focus();});
 $('#project-name').addEventListener('input',()=>{if(active){active={...active,name:$('#project-name').value};dirty=true;clearBackup();controls();}});
 $('#save-project').addEventListener('click',()=>perform(async()=>{await flush();render();status('Projektet er gemt lokalt.');}));
-$('#start-camera').addEventListener('click',async()=>{try{if(await camera.start())status('Kameraet er aktivt uden lyd. Vælg Tag foto eller Optag video.');}catch(error){status(error.message,true);}});
+$('#start-camera').addEventListener('click',async()=>{try{if(await camera.start())status('Kameraet er aktivt uden lyd. Vælg Tag foto eller Optag video.');}catch(error){status(error.message,true);window.dispatchEvent(new Event('scan3d:cameraerror'));}});
 $('#stop-camera').addEventListener('click',()=>{const wasRecording=recording;videoRecorder.stop();camera.stop();if(!wasRecording)status('Kameraet er slukket.');});
 $('#connect-depth').addEventListener('click',async()=>{
   camera.stop();try{await depth.start($('#depth-address').value.trim(),{encodingConfirmed:$('#depth-encoding').checked});}catch(error){status(error.message,true);}
@@ -276,4 +287,5 @@ async function boot() {
   try{$('#import-legacy').hidden=!localStorage.getItem(LEGACY_KEY);}catch{}
   busy=false;render();if(!videoRecorder.supported)$('#video-state').textContent='Denne browser kan ikke optage livevideo. Brug Vælg video. MP4 eller WebM skal kunne afspilles i browseren.';document.body.dataset.ready='true';
 }
+initLaunchHelp();
 boot();

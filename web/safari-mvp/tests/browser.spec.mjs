@@ -151,3 +151,55 @@ test('recording capabilities either finalize a real synthetic stream or retain t
   await expect(page.locator('#camera-state')).toHaveText('Kamera slukket');await expect(page.locator('#video-count')).toHaveText('2');await saved(page);
   await page.reload();await saved(page);await expect(page.locator('#video-count')).toHaveText('2');
 });
+
+test('home-screen metadata and app icons load, with honest Chrome iPhone instructions',async({page})=>{
+  await page.addInitScript(()=>{Object.defineProperty(navigator,'userAgent',{value:'iPhone CriOS/155 Safari/604.1',configurable:true});});
+  await ready(page);const response=await page.request.get('/manifest.webmanifest');expect(response.ok()).toBe(true);expect(response.headers()['content-type']).toContain('application/manifest+json');const manifest=await response.json();expect(manifest.display).toBe('standalone');expect(manifest.start_url).toBe('./');
+  for(const icon of manifest.icons){const r=await page.request.get('/'+icon.src.replace('./',''));expect(r.ok()).toBe(true);expect(r.headers()['content-type']).toContain('image/png');}
+  await page.locator('#install-app').click();await expect(page.locator('#install-dialog')).toBeVisible();await expect(page.locator('#install-instructions')).toContainText('I Chrome på iPhone');await expect(page.locator('#install-instructions')).toContainText('Del');await expect(page.locator('#native-install')).toBeHidden();await expect(page.locator('#install-dialog')).toContainText('Projekter i en anden browser');await page.locator('#close-install').click();
+  expect(await page.locator('#new-project').evaluate(b=>getComputedStyle(b).userSelect)).toBe('none');expect(await page.locator('#project-name').evaluate(b=>getComputedStyle(b).userSelect)).toBe('text');
+});
+test('camera help reads permissions without requesting them and recovers from a denied request',async({page})=>{
+  await page.addInitScript(()=>{window.qaCameraCalls=0;Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:async()=>{window.qaCameraCalls++;throw new DOMException('test denial','NotAllowedError');}}});Object.defineProperty(navigator,'permissions',{configurable:true,value:{query:async()=>({state:'denied'})}});});
+  await ready(page);await page.locator('#camera-help').click();await expect(page.locator('#permission-results')).toContainText('Blokeret');expect(await page.evaluate(()=>window.qaCameraCalls)).toBe(0);await expect(page.locator('#permission-note')).toContainText('ingen mikrofon');await page.locator('#close-permissions').click();
+  await create(page);await page.locator('#start-camera').click();await expect(page.locator('#camera-help')).toContainText('Kamera blokeret');expect(await page.evaluate(()=>window.qaCameraCalls)).toBe(1);await expect(page.locator('#choose-photo')).toBeEnabled();await page.locator('#camera-help').click();await expect(page.locator('#permission-dialog')).toBeVisible();await page.locator('#check-permissions').click();expect(await page.evaluate(()=>window.qaCameraCalls)).toBe(1);
+});
+
+test('guided capture creates one project, persists its choice and preserves photos when switching',async({page})=>{
+  await page.addInitScript(()=>{window.guideCameraCalls=0;Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:async()=>{window.guideCameraCalls++;throw new DOMException('test','NotAllowedError');}}});});
+  await ready(page);await expect(page.locator('#capture-steps')).toBeHidden();
+  await page.getByRole('button',{name:'Vælg vejledning til et rum',exact:true}).click();await saved(page);
+  await expect(page.locator('#project-count')).toHaveText('1');await expect(page.locator('#project-name')).toHaveValue('Mit rum');
+  await expect(page.locator('[data-capture-mode="room"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('#start-camera')).toBeFocused();
+  expect(await page.evaluate(()=>window.guideCameraCalls)).toBe(0);
+  await addPhoto(page);await expect(page.locator('#capture-summary')).toHaveText('1 foto · 0 videoer · ingen 3D-model endnu');
+  await page.getByRole('button',{name:'Vælg vejledning til en genstand',exact:true}).click();
+  await expect(page.locator('#project-count')).toHaveText('1');await expect(page.locator('#project-name')).toHaveValue('Mit rum');
+  await expect(page.locator('#photo-count')).toHaveText('1');
+  await page.reload();await saved(page);await expect(page.locator('[data-capture-mode="object"]')).toHaveAttribute('aria-pressed','true');
+  await page.locator('#capture-step-title').click();await expect(page.locator('#capture-step-list li')).toHaveCount(3);
+  await page.evaluate(()=>document.documentElement.style.fontSize='200%');
+  const overflow=()=>page.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth,elements:[...document.querySelectorAll('main *')].map(e=>{const r=e.getBoundingClientRect();return {tag:e.tagName,id:e.id,width:r.width,right:r.right};}).filter(r=>r.width>0&&r.right>innerWidth+1).slice(0,8)}));
+  let layout=await overflow();expect(layout.documentWidth,JSON.stringify(layout)).toBeLessThanOrEqual(layout.width+1);
+  await page.evaluate(()=>document.documentElement.style.fontFamily='Verdana,sans-serif');
+  layout=await overflow();expect(layout.documentWidth,JSON.stringify(layout)).toBeLessThanOrEqual(layout.width+1);
+  for(const button of await page.locator('[data-capture-mode]').all()){const box=await button.boundingBox();expect(box.width).toBeGreaterThanOrEqual(44);expect(box.height).toBeGreaterThanOrEqual(44);}
+  await page.locator('#prepare-export').click();const backup=JSON.parse(await download(page,'#download-backup'));
+  expect(backup.version).toBe(2);expect(backup.project.photos).toHaveLength(1);expect(backup.project.model).toBeNull();
+  expect(createHash('sha256').update(Buffer.from(backup.project.photos[0].data,'base64')).digest('hex')).toBe(backup.project.photos[0].sha256);
+});
+
+test('guide storage failure and project storage failure retain an honest usable draft',async({page})=>{
+  await page.addInitScript(()=>{const get=Storage.prototype.getItem,set=Storage.prototype.setItem;Storage.prototype.getItem=function(key){if(key==='scan3d-capture-guide-v1')throw new DOMException('test','SecurityError');return get.call(this,key);};Storage.prototype.setItem=function(key,value){if(key==='scan3d-capture-guide-v1')throw new DOMException('test','QuotaExceededError');return set.call(this,key,value);};});
+  await ready(page,'/?qa=storage-denied');
+  await page.getByRole('button',{name:'Vælg vejledning til en genstand',exact:true}).click();
+  await expect(page.locator('#save-state')).toHaveAttribute('data-saved','false');
+  await expect(page.locator('#status')).toHaveAttribute('data-error','true');
+  await expect(page.locator('#capture-storage-note')).toBeVisible();
+  await expect(page.locator('#capture-next')).toContainText('endnu ikke gemt');
+  await page.locator('#photo-file').setInputFiles(photo);await expect(page.locator('#photo-count')).toHaveText('1');
+  await page.locator('#prepare-export').click();const backup=JSON.parse(await download(page,'#download-backup'));expect(backup.project.photos).toHaveLength(1);
+  await page.reload();await expect(page.locator('body')).toHaveAttribute('data-ready','true');
+  await expect(page.locator('#project-count')).toHaveText('0');await expect(page.locator('[data-capture-mode="object"]')).toHaveAttribute('aria-pressed','false');
+});
