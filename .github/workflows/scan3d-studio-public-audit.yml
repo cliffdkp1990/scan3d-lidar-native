@@ -41,6 +41,22 @@ jobs:
         run: |
           set -euo pipefail
           node tools/pwa/test-live-worker.mjs "$RUNNER_TEMP/scan3d-public-audit/sw.js" "$RUNNER_TEMP/scan3d-public-audit/sw.candidate.js"
+      - name: Test public source recovery and no-data-access boundaries
+        run: |
+          set -euo pipefail
+          node tools/pwa/test-snapshot-live-studio.mjs "$RUNNER_TEMP/scan3d-public-audit"
+      - name: Preserve exact public Studio files and source checksums (review only)
+        run: |
+          set -euo pipefail
+          node tools/pwa/snapshot-live-studio.mjs "$RUNNER_TEMP/scan3d-public-audit" "$RUNNER_TEMP/scan3d-public-audit/verified-source"
+          node --input-type=module <<'JS'
+          import {readFile} from 'node:fs/promises';
+          const r=JSON.parse(await readFile(process.env.RUNNER_TEMP+'/scan3d-public-audit/verified-source/PUBLIC_SOURCE_RECEIPT.json','utf8'));
+          if(r.filesVerified!==28||r.writeToProduction!==false||r.readyForDeployment!==false||
+             r.isCompleteDeploymentSource!==false||r.referenceWorkerSHA256!=='1e67705b53780b6dae90e14615fc0d76259f34f15fcdc5b31dc21678270d0278')
+            throw new Error('Original public Studio source snapshot is incomplete or unsafe');
+          console.log('Original Studio source files verified:',r.filesVerified,'assets;',r.bytesVerified,'public bytes; no project data or writes.');
+          JS
       - name: Store precise public-source evidence for review
         if: always()
         uses: actions/upload-artifact@v4
