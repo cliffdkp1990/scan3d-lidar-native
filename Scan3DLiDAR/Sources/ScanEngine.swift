@@ -262,12 +262,21 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         } else { highResolutionSupported=false }
         photoSourceDescription=highResolutionSupported && preferHighResolution ? "Højopløsningsfoto" : "Kameraframe"
         config.planeDetection = [.horizontal, .vertical]
-        // Prefer temporally smoothed LiDAR, but accept the discrete depth
-        // semantic on hardware that exposes only sceneDepth.
-        if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
+        // Apple's Depth Cloud sample requests both modes together. Enabling
+        // smoothed depth alone does not guarantee sceneDepth is populated,
+        // so raw confidence fallback requires requesting BOTH when supported.
+        // Otherwise keep the existing supported single-depth behavior.
+        let bothDepthModes: ARConfiguration.FrameSemantics = [.sceneDepth, .smoothedSceneDepth]
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(bothDepthModes) {
+            config.frameSemantics.formUnion(bothDepthModes)
+        } else if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
             config.frameSemantics.insert(.smoothedSceneDepth)
-        } else {
+        } else if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
             config.frameSemantics.insert(.sceneDepth)
+        } else {
+            cameraIssue="LiDAR-dybde er ikke understøttet af denne ARKit-konfiguration."
+            running=false
+            return
         }
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
             config.sceneReconstruction = .meshWithClassification
