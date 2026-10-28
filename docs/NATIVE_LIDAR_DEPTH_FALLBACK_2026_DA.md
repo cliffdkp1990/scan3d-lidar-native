@@ -9,12 +9,14 @@ Apple ARKit tilbyder `ARFrame.smoothedSceneDepth` (udglattet over flere frames) 
 - [Apple: sceneDepth](https://developer.apple.com/documentation/arkit/arconfiguration/framesemantics-swift.struct/scenedepth)
 - [Apple: ARDepthData og confidenceMap](https://developer.apple.com/documentation/arkit/ardepthdata)
 - [Apple: punktsky fra ARKit scene depth](https://developer.apple.com/documentation/arkit/displaying-a-point-cloud-using-scene-depth)
+  - Officielt eksempel: `config.frameSemantics = [.sceneDepth, .smoothedSceneDepth]`, efter et samlet `supportsFrameSemantics`-tjek. Raw fallback er ikke mulig, hvis `sceneDepth` ikke er aktiveret.
 - [Apple: captureHighResolutionFrame er out-of-band](https://developer.apple.com/documentation/arkit/arsession/capturehighresolutionframe%28completion%3A%29)
 - [Remote Sensing Letters, 2026: iPhone LiDAR model-og-afstandsafhængig unøjagtighed](https://www.tandfonline.com/doi/abs/10.1080/2150704X.2026.2720055)
 
 ## Implementeret i denne pull request
 
-1. `LiDARDepthFallbackPolicy.swift` giver en deterministisk beslutning: smoothed valid → smoothed; smoothed invalid, raw valid → raw; begge invalid → ingen måling.
+1. `ScanEngine.swift` anmoder ARKit om **begge** scene-depth-semantikker, når den samlede kombination er understøttet. Dette matcher Apples Depth Cloud-eksempel. Ellers vælges kun en understøttet semantik; ingen ikke-understøttet mulighed aktiveres.
+2. `LiDARDepthFallbackPolicy.swift` giver en deterministisk beslutning: smoothed valid → smoothed; smoothed invalid, raw valid → raw; begge invalid → ingen måling.
 2. `DepthBufferSampler.swift` returnerer de **samme to parrede og validerede CoreVideo-buffere** (depth/confidence) og en 25-pixel center-estimate. Den kombinerer **aldrig** pixels fra forskellige kilder.
 3. `CameraImageQuality.swift` vælger en kandidat fra én konkret ARFrame med den fælles CoreVideo-kontrol.
 4. `LiDARGeometry.swift` benytter samme kilde til faktiske XYZ-punkter som mål-afstand og centrummåling. De eksisterende krav om finite meterværdier, tilstødende konsistente pixels, accepteret confidence, gyldig kamera-intrinsics og bounded point collector forbliver aktive.
