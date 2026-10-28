@@ -3,7 +3,7 @@ export function cameraMessage(error) {
     NotFoundError: 'Intet kamera blev fundet. Vælg et foto i stedet.',
     NotReadableError: 'Kameraet er optaget eller utilgængeligt. Luk andre kameraapps, og prøv igen.',
     OverconstrainedError: 'Kameraet kan ikke bruge de ønskede indstillinger. Vælg et foto i stedet.' })[error?.name] ||
-    'Kameraet kunne ikke startes. Åbn siden i Safari via HTTPS, eller vælg et foto.';
+    'Kameraet kunne ikke startes. Åbn appens HTTPS-adresse i Chrome eller Safari. Vælg Kamera og hjælp, eller vælg et foto.';
 }
 export class CameraSession {
   constructor(video, mediaDevices = globalThis.navigator?.mediaDevices, onState = () => {}) {

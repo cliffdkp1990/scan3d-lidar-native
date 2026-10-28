@@ -1,0 +1,15 @@
+{
+  "id": "./",
+  "name": "Scan3D Studio",
+  "short_name": "Scan3D",
+  "lang": "da",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5ef",
+  "theme_color": "#164d40",
+  "icons": [
+    {"src":"./icons/scan3d-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"./icons/scan3d-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

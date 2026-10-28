@@ -12,7 +12,15 @@ Denne webapp ligger i `web/safari-mvp/`. Den bygger videre på foto-/projektprot
 - Klargør og hent en samlet JSON-sikkerhedskopi med faktiske filer og hashes. Deling via filunderstøttet Web Share tilbydes kun, når browseren annoncerer understøttelse. Klargøring og den brugerudløste deling er separate trin, så asynkront arbejde ikke bruger iOS' delingsgesture op. Download/deling betyder ikke, at appen kan bekræfte en fysisk fil i Filer.
 - Importér backup som en ny projektkopi med nye ID'er. Tidligere version 1-eksporter kan læses. Den første prototypes `scan3d-safari-mvp-v1`-lager kan importeres eksplicit; en atomisk markør hindrer gentagen import af samme indhold. Det gamle lager slettes eller omskrives ikke.
 
-## Grænser og sikkerhed
+## Åbning i Chrome og fra hjemmeskærmen
+
+Appen har et relativt webmanifest med standalone-visning samt lokale 180/192/512 px ikoner. I Chrome på iPhone bruges browserens Del → Føj til startskærm → Tilføj. Knappen i appen viser den konkrete vejledning; den påstår ikke at kunne tilføje ikonet automatisk. Et understøttet beforeinstallprompt bruges kun efter brugertryk. Der installeres ingen service worker og caches ingen private login-sider til offlinebrug. Internet og gyldigt login kræves stadig. Projekter kan ligge i adskilte lagre i forskellige browsere og hjemmeskærmsinstallationer; tag en backup før skift.
+
+Kamera og hjælp aflæser HTTPS, kamera-API, tilgængelig Permissions Policy, browserens kameratilladelse og rammevisning uden at starte kamera eller anmode om flere tilladelser. Ukendte værdier mærkes ukendte. Kamera aktiveres kun af Start kamera; mikrofon, placering og notifikationer anmodes ikke. Menutekster er undersøgt i Googles officielle iPhone-vejledning. Afvist adgang giver en synlig hjælpeknap og bevarer fotovalg. Kontroller kan ikke tekstmarkeres ved langt tryk, mens projektnavne og kopieringsfelter stadig kan redigeres/markeres. Zoom og brugerens tekststørrelse bevares.
+
+En 403 “Du har ikke adgang” opstår før appkoden ved manglende konto-adgang. Kamera-/iOS-tilladelser eller et nyt ikon løser ikke denne fejl. Servicebaseret filkontrol er ikke bevis for et vellykket browserlogin. Der er konkret observeret afvist adgang for en anden browserkonto end sidens ejer. Der logges ikke ud eller ændres adgang automatisk af appkoden.
+
+## Øvrige grænser
 
 Safari-webversionen får **ingen ægte LiDAR eller ARKit sceneDepth**. Foto/video-til-3D-rekonstruktion, tekstur, vilkårlig GLB/STL-import, kalibrerede mål og 3D-printreparation er ikke implementeret her. Native-appens eksisterende videofunktion bevares.
 
