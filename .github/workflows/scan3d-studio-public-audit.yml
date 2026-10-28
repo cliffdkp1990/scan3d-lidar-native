@@ -1,0 +1,42 @@
+name: Scan3D Studio - read-only public PWA audit
+
+# This NEVER modifies Vercel. Only fetches three static, public assets
+# from the fixed production domain. No Apple account, secrets or upload.
+on:
+  pull_request:
+    paths:
+      - 'tools/pwa/check-live-studio.mjs'
+      - '.github/workflows/scan3d-studio-public-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-studio:
+    name: Confirm public Studio manifest and offline worker without login
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      AUDIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.AUDIT_COMMIT }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Audit immutable fixed HTTPS production URL (no login or writes)
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_COMMIT"
+          node tools/pwa/check-live-studio.mjs "$RUNNER_TEMP/scan3d-public-audit"
+      - name: Store precise public-source evidence for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-studio-public-pwa-audit-${{ env.AUDIT_COMMIT }}
+          path: ${{ runner.temp }}/scan3d-public-audit/
+          if-no-files-found: warn
+          retention-days: 7
