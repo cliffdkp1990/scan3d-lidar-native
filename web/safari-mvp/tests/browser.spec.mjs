@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const photo=fileURLToPath(new URL('./fixtures/photo.png',import.meta.url));
+const movie=fileURLToPath(new URL('./fixtures/synthetic-rgbd.mp4',import.meta.url));
 const obj='v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n';
 const pageErrors=new WeakMap();
 test.beforeEach(async({page})=>{const errors=[];pageErrors.set(page,errors);page.on('pageerror',e=>errors.push(e.message));});
@@ -49,7 +50,7 @@ test('STL download is permitted for a closed tetrahedron and rejected for an ope
   expect(bytes.readUInt32LE(80)).toBe(4);
   expect(bytes.readFloatLE(84+12+12+4)).toBe(1);
   await expect(page.locator('#status')).toContainText('Kontrollér enheder');
-  await page.reload();await saved(page);
+  await page.reload();await saved(page);await page.locator('#model-tab').click();
   await expect(page.locator('#export-stl')).toBeVisible();
 });
 test('new models preserve the previous saved model in a separate project',async({page})=>{
@@ -74,6 +75,7 @@ test('camera permission denial keeps file-photo capture available',async({page})
   await ready(page,'/?qa=camera-denied');await create(page);await page.locator('#start-camera').click();await expect(page.locator('#status')).toContainText('afvist');await expect(page.locator('#camera-state')).toHaveText('Kamera slukket');await addPhoto(page);
 });
 test('synthetic live camera captures a photo and releases tracks on pagehide',async({page},info)=>{
+  await ready(page);test.skip(!await page.evaluate(()=>typeof document.createElement('canvas').captureStream==='function'),'Windows WebKit lacks canvas.captureStream; not a physical camera test.');
   await ready(page,'/?qa=camera-fake');await create(page);await page.locator('#start-camera').click();await expect(page.locator('#camera-state')).toHaveText('Live · uden lyd');
   await expect.poll(()=>page.locator('#camera').evaluate(v=>v.readyState)).toBeGreaterThanOrEqual(2);
   await page.locator('#take-photo').click();await expect(page.locator('#photo-count')).toHaveText('1');await saved(page);
@@ -81,6 +83,12 @@ test('synthetic live camera captures a photo and releases tracks on pagehide',as
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await expect(page.locator('#camera-state')).toHaveText('Kamera slukket');
   expect(await page.locator('#camera').evaluate(v=>v.srcObject)).toBeNull();
 });
+
+async function canDecodeMovie(page) {
+  return page.evaluate(async()=>{const video=document.createElement('video'),blob=await(await fetch('./tests/fixtures/synthetic-rgbd.mp4')).blob(),url=URL.createObjectURL(blob);video.muted=true;video.preload='auto';
+    return new Promise(resolve=>{const timer=setTimeout(()=>finish(false),3000);const finish=value=>{clearTimeout(timer);video.onloadeddata=video.onerror=null;video.removeAttribute('src');video.load();URL.revokeObjectURL(url);resolve(value);};video.onloadeddata=()=>finish(true);video.onerror=()=>finish(false);video.src=url;video.load();});
+  });
+}
 test('blocked storage preserves a visible draft that can still be exported',async({page})=>{
   await ready(page,'/?qa=storage-denied');await page.locator('#new-project').click();await expect(page.locator('#save-state')).toContainText('Kladde');
   await page.locator('#photo-file').setInputFiles(photo);await expect(page.locator('#photo-count')).toHaveText('1');await expect(page.locator('#save-state')).toHaveAttribute('data-saved','false');
@@ -106,4 +114,39 @@ test('22px text and all three layouts retain 44px controls without horizontal ov
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   for(const b of await page.locator('#model-panel button:visible').all()){const box=await b.boundingBox();expect(box.height).toBeGreaterThanOrEqual(44);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(page.viewportSize().width);}
   await page.screenshot({path:info.outputPath('layout-22px.png'),fullPage:true});
+});
+
+test('video import, playback, reload and v3 backup retain exact bytes; corrupt backup cannot overwrite',async({page})=>{
+  await ready(page);test.skip(!await canDecodeMovie(page),'This engine cannot decode the synthetic H.264 fixture; codec rejection has a separate test.');await create(page,'QA video');await addPhoto(page);
+  await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#video-count')).toHaveText('1');await saved(page);
+  const video=page.locator('#videos video');await video.evaluate(v=>v.play());await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(0);await video.evaluate(v=>v.pause());
+  expect(await download(page,'#videos a')).toEqual(await readFile(movie));
+  await page.reload();await saved(page);await expect(page.locator('#video-count')).toHaveText('1');
+  await page.locator('#prepare-export').click();const backup=await download(page,'#download-backup'),raw=JSON.parse(backup);
+  expect(raw.version).toBe(3);expect(raw.project.videos).toHaveLength(1);expect(raw.project.photos).toHaveLength(1);
+  expect(createHash('sha256').update(Buffer.from(raw.project.videos[0].data,'base64')).digest('hex')).toBe(raw.project.videos[0].sha256);
+  await page.locator('#import-file').setInputFiles({name:'video.json',mimeType:'application/json',buffer:backup});await expect(page.locator('#project-count')).toHaveText('2');await saved(page);
+  raw.project.videos[0].data='QUJDRA==';await page.locator('#import-file').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(raw))});
+  await expect(page.locator('#status')).toHaveAttribute('data-error','true');await expect(page.locator('#project-count')).toHaveText('2');await expect(page.locator('#video-count')).toHaveText('1');
+  for(let i=0;i<2;i++){await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#video-count')).toHaveText(String(i+2));await saved(page);}
+  await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#status')).toContainText('Højst tre');await expect(page.locator('#video-count')).toHaveText('3');
+});
+test('missing recorder leaves file-video import available',async({page})=>{
+  await page.addInitScript(()=>Object.defineProperty(window,'MediaRecorder',{value:undefined,configurable:true}));await ready(page);await create(page);
+  await expect(page.locator('#start-video')).toBeDisabled();await expect(page.locator('#choose-video')).toBeEnabled();
+  if(await canDecodeMovie(page)){await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#video-count')).toHaveText('1');await saved(page);}
+  else {await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#status')).toContainText('codec',{timeout:12000});await expect(page.locator('#recover-video')).toBeVisible();expect(await download(page,'#recover-video')).toEqual(await readFile(movie));await expect(page.locator('#video-count')).toHaveText('0');await saved(page);}
+});
+test('actual synthetic stream recording locks project changes, finalizes, plays and survives reload',async({page},info)=>{
+  await ready(page);
+  const supported=await page.evaluate(()=>typeof MediaRecorder==='function'&&typeof document.createElement('canvas').captureStream==='function');
+  test.skip(!supported,'This test engine lacks MediaRecorder/canvas capture; not physical iPhone evidence.');
+  await ready(page,'/?qa=camera-fake');await create(page,'QA optagelse');await page.locator('#start-camera').click();await expect(page.locator('#camera-state')).toHaveText('Live · uden lyd');
+  await page.locator('#start-video').click();await expect(page.locator('#video-state')).toContainText('Optager');await expect(page.locator('#new-project')).toBeDisabled();await expect(page.locator('#model-tab')).toBeDisabled();
+  await page.waitForTimeout(1200);await page.locator('#stop-video').click();await expect(page.locator('#video-count')).toHaveText('1');await saved(page);
+  await page.locator('#videos video').evaluate(v=>v.play());await expect.poll(()=>page.locator('#videos video').evaluate(v=>v.currentTime)).toBeGreaterThan(0);
+  await page.locator('#videos video').evaluate(v=>v.pause());await page.locator('#photo-panel').screenshot({path:info.outputPath('actual-synthetic-video.png')});
+  await page.locator('#start-video').click();await page.waitForTimeout(600);await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
+  await expect(page.locator('#camera-state')).toHaveText('Kamera slukket');await expect(page.locator('#video-count')).toHaveText('2');await saved(page);
+  await page.reload();await saved(page);await expect(page.locator('#video-count')).toHaveText('2');
 });

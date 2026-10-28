@@ -3,13 +3,14 @@ import { LIMITS, validateProject } from './core.mjs';
 export async function serializeProject(project) {
   const encode=async asset=>{const{blob,...metadata}=asset;return{...metadata,type:blob.type,buffer:await blob.arrayBuffer()};};
   const photos=[];for(const asset of project.photos)photos.push(await encode(asset));
-  return{...project,storageEncoding:'array-buffer-v1',photos,model:project.model?await encode(project.model):null};
+  const videos=[];for(const asset of project.videos||[])videos.push(await encode(asset));
+  return{...project,storageEncoding:'array-buffer-v1',photos,videos,model:project.model?await encode(project.model):null};
 }
 export function deserializeProject(record) {
   if(record.storageEncoding!=='array-buffer-v1')return record;
   const decode=asset=>{const{buffer,type,...metadata}=asset;if(!(buffer instanceof ArrayBuffer))throw new Error('Ugyldig lagret binær fil.');return{...metadata,blob:new Blob([buffer],{type})};};
   const{storageEncoding,...metadata}=record;
-  return{...metadata,photos:record.photos.map(decode),model:record.model?decode(record.model):null};
+  return{...metadata,photos:record.photos.map(decode),videos:record.videos===undefined?[]:record.videos.map(decode),model:record.model?decode(record.model):null};
 }
 export class ProjectStore {
   constructor(indexedDB) {

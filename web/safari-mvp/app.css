@@ -15,3 +15,4 @@ main{max-width:1020px;margin:auto;padding:38px max(24px,env(safe-area-inset-righ
 #rgbd-state{overflow-wrap:anywhere}
 .encoding-confirm{display:flex;align-items:center;gap:.75rem;min-height:44px;margin:1rem 0}
 .encoding-confirm input{width:24px;height:24px;flex:0 0 24px}
+.video-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px;margin:14px 0}.video-card{min-width:0;border:1px solid var(--line);border-radius:16px;padding:12px}.video-card video{display:block;width:100%;max-height:360px;background:#102e28;border-radius:10px}.video-card p{font-size:.8rem}#video-state{min-height:1.6em}#stop-video{background:#8b3529;color:white}

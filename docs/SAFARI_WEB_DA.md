@@ -14,7 +14,15 @@ Denne webapp ligger i `web/safari-mvp/`. Den bygger videre på foto-/projektprot
 
 ## Grænser og sikkerhed
 
-Safari-webversionen får **ingen ægte LiDAR eller ARKit sceneDepth**. Foto/video-til-3D-rekonstruktion, videooptagelse, tekstur, vilkårlig GLB/STL-import, kalibrerede mål og 3D-printreparation er ikke implementeret her. Native-appens eksisterende videofunktion bevares.
+Safari-webversionen får **ingen ægte LiDAR eller ARKit sceneDepth**. Foto/video-til-3D-rekonstruktion, tekstur, vilkårlig GLB/STL-import, kalibrerede mål og 3D-printreparation er ikke implementeret her. Native-appens eksisterende videofunktion bevares.
+
+Webkameraet kan nu optage korte videoer uden lyd, når browseren understøtter MediaRecorder. Der anmodes ikke om en mikrofon. Browserens eget understøttede MP4-format foretrækkes; ellers vælges WebM eller dens standardformat. Maksimum er tre klip pr. projekt, 30 sekunder og 8 MiB pr. klip; projektets samlede 24 MiB-grænse gælder stadig. Tidsgrænsen er et foreground-timerstop, ikke en garanti ved OS-suspendering. Optageren venter på den sidste dataavailable før lagring. Skjult fane, pagehide eller afbrudt kamerasporet afslutter optagelsen, men en iOS-tvangslukning kan miste et igangværende klip.
+
+Vælg video importerer lokalt MP4/WebM, som faktisk kan afkodes af browseren. Videoerne vises med standardafspilning, gemmes binært med SHA-256 og kan hentes enkeltvis. Manglende optage-API deaktiverer kun livevideo. Codec-, størrelses- eller lagerfejl viser en forklaring. Efter et færdigt klip findes en særskilt download, hvis projektlagring mislykkes; tidligere gemte data bevares. Importerede klip beholder eventuel eksisterende lyd; appens egne optagelser er uden lyd.
+
+Eksisterende lokale version 2-poster og projektarkiver version 1/2 læses fortsat. Backup uden video forbliver version 2, og native-broen er uændret. Backup med video er version 3: en gammel app afviser den i stedet for at tabe klip. Tidsmetadata kontrolleres mod en endelig varighed fra browseren; WebM uden varighed i containeren bruger optagelsens medfølgende tidsmetadata, ikke en uafhængig opmåling.
+
+Windows' Playwright-WebKit har her ingen MediaRecorder eller canvas.captureStream og afviser lokalt oprettede H.264-Blob-URL'er, selv om samme testvideo kan åbnes via HTTP. Derfor registreres optagelse/import-afspilning som sprunget over i den motor, mens den faktiske afvisning, bevarede filer og genfindingsdownload testes. Chrome tester faktisk kodning af syntetiske kamerastreams. Hverken denne Chrome-test eller Windows-WebKit er fysisk Safari/iPhone-godkendelse. Den native installation og Apple-tilladelser er uændrede.
 
 Grænser: 30 fotos/projekt, 40 projekter, 12 MiB pr. fotoinput, 32 megapixel ved billedafkodning, 8 MiB pr. model, 200.000 modelpunkter, 60.000 trekanter, 24 MiB binære data/projekt og 36 MiB backup. PLY-visningen sampler højst 20.000 punkter; alle importerede kildepunkter bevares i originalfilen. Store/ugyldige filer afvises med en forklaring. Uden WebGL kan projekter og originalmodeller stadig gemmes/eksporteres; der vises en tydelig grafisk fejltilstand.
 
@@ -53,3 +61,4 @@ WebKit på Linux med emuleret iPhone-størrelse er **ikke Safari-appen eller en 
 - [WebKits lagerpolitik](https://webkit.org/blog/14403/updates-to-storage-policy/): kvoter, fejl og mulig rydning; der loves ikke permanent browserlager.
 - [Apples Safari-videoanvisninger](https://developer.apple.com/documentation/webkit/delivering-video-content-for-safari): `muted` og `playsinline` til inline visning.
 - [Playwrights browserdokumentation](https://playwright.dev/docs/browsers): WebKit og enhedsemulering; det er ikke fysisk Safari-certificering.
+- [WebKits MediaRecorder-dokumentation](https://webkit.org/blog/11353/mediarecorder-api/): kapabilitetskontrol, MP4 og afsluttende videoevents. Telefonens aktuelle understøttelse skal stadig afprøves.
