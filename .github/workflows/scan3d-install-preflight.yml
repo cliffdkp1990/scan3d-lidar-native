@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   windows-installer:
@@ -34,3 +35,49 @@ jobs:
             if ($text.Contains($forbidden)) { throw 'Forbidden credential handling in helper' }
           }
           Write-Output 'No credential storage variables in installer script.'
+
+  prepare-bundle:
+    name: Package verified Scan3D IPA with Windows one-click installer
+    needs: windows-installer
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch immutable green native iPhone Release from run 40674254719
+        uses: actions/download-artifact@v4
+        with:
+          name: scan3d-unsigned-iphone
+          run-id: 40674254719
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: ${{ runner.temp }}/scan3d-ipa
+      - name: Verify exact IPA SHA-256, source commit and every embedded file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tools/installer/Start-Scan3D.ps1 -CheckOnly -PackageFolder "$env:RUNNER_TEMP/scan3d-ipa"
+      - name: Build offline one-click user ZIP without signing or executing installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = Join-Path $env:RUNNER_TEMP 'scan3d-one-click'
+          New-Item -Path $dest -ItemType Directory -Force | Out-Null
+          @('Start-Scan3D.cmd','Start-Scan3D.ps1','Test-Scan3D.ps1','README_DA.md') | ForEach-Object {
+            Copy-Item -LiteralPath (Join-Path './tools/installer' $_) -Destination $dest
+          }
+          @('Scan3D-unsigned.ipa','SCAN3D_PACKAGE.json') | ForEach-Object {
+            Copy-Item -LiteralPath (Join-Path "$env:RUNNER_TEMP/scan3d-ipa" $_) -Destination $dest
+          }
+          $output = Join-Path $env:RUNNER_TEMP 'Scan3D_1_KLIK_iPhone_Windows_3863502b.zip'
+          Compress-Archive -Path (Join-Path $dest '*') -DestinationPath $output -CompressionLevel Optimal
+          if ((Get-Item -LiteralPath $output).Length -lt 1000000) { throw 'Suspiciously small installer ZIP' }
+          Write-Output "Prepared verified unsigned IPA and starter: $output"
+      - name: Upload one-click starter package
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-one-click-Windows-3863502b
+          path: ${{ runner.temp }}/Scan3D_1_KLIK_iPhone_Windows_3863502b.zip
+          if-no-files-found: error
+          retention-days: 14
