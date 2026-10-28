@@ -6,6 +6,7 @@ import { validatePrintableMesh, exportBinarySTL } from './stl.mjs';
 import { ModelViewer } from './viewer.mjs';
 import { Record3DSession } from './record3d-session.mjs';
 import { VIDEO, VideoRecorder, decodeVideo, videoType } from './video.mjs';
+import { initLaunchHelp } from './launch.mjs';
 
 const $ = selector => document.querySelector(selector);
 const store = new ProjectStore();
@@ -202,7 +203,7 @@ async function addPhoto(blob,name,source) {
 $('#new-project').addEventListener('click',()=>perform(async()=>{await flush();camera.stop();await commit(newProject('Projekt '+new Date().toLocaleString('da-DK',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})));showTab('photo');$('#project-name').focus();$('#project-name').select();}));
 $('#project-name').addEventListener('input',()=>{if(active){active={...active,name:$('#project-name').value};dirty=true;clearBackup();controls();}});
 $('#save-project').addEventListener('click',()=>perform(async()=>{await flush();render();status('Projektet er gemt lokalt.');}));
-$('#start-camera').addEventListener('click',async()=>{try{if(await camera.start())status('Kameraet er aktivt uden lyd. Vælg Tag foto eller Optag video.');}catch(error){status(error.message,true);}});
+$('#start-camera').addEventListener('click',async()=>{try{if(await camera.start())status('Kameraet er aktivt uden lyd. Vælg Tag foto eller Optag video.');}catch(error){status(error.message,true);window.dispatchEvent(new Event('scan3d:cameraerror'));}});
 $('#stop-camera').addEventListener('click',()=>{const wasRecording=recording;videoRecorder.stop();camera.stop();if(!wasRecording)status('Kameraet er slukket.');});
 $('#connect-depth').addEventListener('click',async()=>{
   camera.stop();try{await depth.start($('#depth-address').value.trim(),{encodingConfirmed:$('#depth-encoding').checked});}catch(error){status(error.message,true);}
@@ -276,4 +277,5 @@ async function boot() {
   try{$('#import-legacy').hidden=!localStorage.getItem(LEGACY_KEY);}catch{}
   busy=false;render();if(!videoRecorder.supported)$('#video-state').textContent='Denne browser kan ikke optage livevideo. Brug Vælg video. MP4 eller WebM skal kunne afspilles i browseren.';document.body.dataset.ready='true';
 }
+initLaunchHelp();
 boot();

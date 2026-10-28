@@ -151,3 +151,16 @@ test('recording capabilities either finalize a real synthetic stream or retain t
   await expect(page.locator('#camera-state')).toHaveText('Kamera slukket');await expect(page.locator('#video-count')).toHaveText('2');await saved(page);
   await page.reload();await saved(page);await expect(page.locator('#video-count')).toHaveText('2');
 });
+
+test('home-screen metadata and app icons load, with honest Chrome iPhone instructions',async({page})=>{
+  await page.addInitScript(()=>{Object.defineProperty(navigator,'userAgent',{value:'iPhone CriOS/155 Safari/604.1',configurable:true});});
+  await ready(page);const response=await page.request.get('/manifest.webmanifest');expect(response.ok()).toBe(true);expect(response.headers()['content-type']).toContain('application/manifest+json');const manifest=await response.json();expect(manifest.display).toBe('standalone');expect(manifest.start_url).toBe('./');
+  for(const icon of manifest.icons){const r=await page.request.get('/'+icon.src.replace('./',''));expect(r.ok()).toBe(true);expect(r.headers()['content-type']).toContain('image/png');}
+  await page.locator('#install-app').click();await expect(page.locator('#install-dialog')).toBeVisible();await expect(page.locator('#install-instructions')).toContainText('I Chrome på iPhone');await expect(page.locator('#install-instructions')).toContainText('Del');await expect(page.locator('#native-install')).toBeHidden();await expect(page.locator('#install-dialog')).toContainText('Projekter i en anden browser');await page.locator('#close-install').click();
+  expect(await page.locator('#new-project').evaluate(b=>getComputedStyle(b).userSelect)).toBe('none');expect(await page.locator('#project-name').evaluate(b=>getComputedStyle(b).userSelect)).toBe('text');
+});
+test('camera help reads permissions without requesting them and recovers from a denied request',async({page})=>{
+  await page.addInitScript(()=>{window.qaCameraCalls=0;Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:async()=>{window.qaCameraCalls++;throw new DOMException('test denial','NotAllowedError');}}});Object.defineProperty(navigator,'permissions',{configurable:true,value:{query:async()=>({state:'denied'})}});});
+  await ready(page);await page.locator('#camera-help').click();await expect(page.locator('#permission-results')).toContainText('Blokeret');expect(await page.evaluate(()=>window.qaCameraCalls)).toBe(0);await expect(page.locator('#permission-note')).toContainText('ingen mikrofon');await page.locator('#close-permissions').click();
+  await create(page);await page.locator('#start-camera').click();await expect(page.locator('#camera-help')).toContainText('Kamera blokeret');expect(await page.evaluate(()=>window.qaCameraCalls)).toBe(1);await expect(page.locator('#choose-photo')).toBeEnabled();await page.locator('#camera-help').click();await expect(page.locator('#permission-dialog')).toBeVisible();await page.locator('#check-permissions').click();expect(await page.evaluate(()=>window.qaCameraCalls)).toBe(1);
+});

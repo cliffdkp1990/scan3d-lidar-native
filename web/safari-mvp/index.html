@@ -6,6 +6,13 @@
   <meta name="theme-color" content="#123e35">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <meta name="referrer" content="no-referrer">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Scan3D">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/scan3d-180.png">
+  <link rel="icon" type="image/png" href="./icons/scan3d-192.png">
   <title>Scan3D Studio · Safari-review</title>
   <link rel="stylesheet" href="./app.css">
   <script type="module" src="./app.mjs"></script>
@@ -17,6 +24,7 @@
     <span class="privacy-badge">Lokalt · ingen cloud</span>
   </header>
   <main id="workspace">
+    <div class="launch-bar" aria-label="Åbning og tilladelser"><span id="launch-state" class="pill">Scan3D</span><button id="install-app">Tilføj på hjemmeskærm</button><button id="camera-help">Kamera og hjælp</button></div>
     <div class="intro"><p class="eyebrow">SAFARI PÅ IPHONE · LOKAL REVIEWVERSION</p><h1>Dit motiv.<br>Dine muligheder.</h1>
       <p>Tag fotos og video, gem projekter, og undersøg dine OBJ- og PLY-filer i 3D.</p>
       <p class="scope">LiDAR kræver en native iPhone-app. Åbn dens modelprojekter her i Safari. Fotos bliver ikke automatisk til en 3D-model.</p>
@@ -89,6 +97,8 @@
   <footer>Scan3D Studio · separat iPhone-review · Native Swift/ARKit er bevaret.</footer>
   <dialog id="library" aria-labelledby="library-title"><div class="section-title"><h2 id="library-title">Mine projekter</h2><button id="close-library">Luk</button></div><p id="library-note" role="status"></p><div id="projects"></div></dialog>
   <dialog id="photo-dialog" aria-labelledby="photo-title"><div class="section-title"><h2 id="photo-title">Projektfoto</h2><button id="close-photo">Luk foto</button></div><img id="full-photo" alt="Forstørret projektfoto"><a id="download-photo" class="button">Hent foto</a></dialog>
+  <dialog id="install-dialog" aria-labelledby="install-title"><div class="section-title"><h2 id="install-title">Scan3D på hjemmeskærmen</h2><button id="close-install">Luk</button></div><p id="install-instructions"></p><p>Du godkender selv tilføjelsen. Ikonet åbner appen uden den normale adresselinje, når browseren understøtter webappvisning. Internet og korrekt ChatGPT-login er stadig nødvendigt.</p><p>Projekter i en anden browser eller hjemmeskærmsvisning er ikke garanteret delt. Tag en sikkerhedskopi før skift, og importér den om nødvendigt.</p><div class="actions"><button id="native-install" hidden>Installér</button><button id="copy-app-link">Kopiér appadresse</button></div><p id="install-result" role="status"></p><input id="app-address" aria-label="Appadresse til kopiering" readonly hidden></dialog>
+  <dialog id="permission-dialog" aria-labelledby="permission-title"><div class="section-title"><h2 id="permission-title">Kamera i Chrome</h2><button id="close-permissions">Luk</button></div><ul id="permission-results"></ul><p id="permission-note" class="caption"></p><p id="permission-guide"></p><p>Opret eller åbn et projekt, og tryk Start kamera. Tryk Tillad i browserens dialog. En webside kan ikke ændre iPhones tilladelser for dig.</p><button id="check-permissions">Kontrollér igen</button><details><summary>Hvis siden ikke åbner</summary><p>“Du har ikke adgang” / 403 betyder, at login ikke har adgang til den private side. Brug samme ChatGPT-konto som den, der ejer appen. En anden konto i Chrome kan blive afvist. Kameraindstillinger løser ikke denne loginfejl.</p></details></dialog>
   <noscript><p class="noscript">Denne lokale app kræver JavaScript. Intet kamera eller lager åbnes uden det.</p></noscript>
 </body>
 </html>
