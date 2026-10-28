@@ -49,6 +49,8 @@ struct ContentView: View {
     @State private var resultSheet = false
     @State private var retakeSheet = false
     @State private var librarySheet = false
+    @State private var diagnosticSheet = false
+    @State private var diagnosticSnapshot: Scan3DSensorDiagnostic?
     @State private var newTargetConfirmation = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -56,17 +58,22 @@ struct ContentView: View {
         GeometryReader { geometry in
             CaptureStudioView(engine:engine,size:geometry.size,
                 onLibrary:{librarySheet=true;engine.refreshLibrary()},
-                onResult:{resultSheet=true},onRetake:{retakeSheet=true},
+                onResult:{resultSheet=true},onDiagnostics:{
+                    diagnosticSnapshot=engine.sensorDiagnostic()
+                    diagnosticSheet=true
+                },onRetake:{retakeSheet=true},
                 onNewTarget:{if engine.missionTargetLocked {newTargetConfirmation=true} else {engine.lockCenteredTarget()}})
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented:$resultSheet) { resultView.presentationDragIndicator(.visible) }
         .sheet(isPresented:$retakeSheet) { retakeView.presentationDragIndicator(.visible) }
         .sheet(isPresented:$librarySheet) { ScanLibraryView(engine: engine) }
+        .sheet(isPresented:$diagnosticSheet) { sensorDiagnosticView.presentationDragIndicator(.visible) }
         .onAppear { engine.prepareStudioFixtureIfNeeded(); engine.refreshLibrary() }
         .onChange(of:resultSheet) { _,_ in updateCaptureSuspension() }
         .onChange(of:retakeSheet) { _,_ in updateCaptureSuspension() }
         .onChange(of:librarySheet) { _,_ in updateCaptureSuspension() }
+        .onChange(of:diagnosticSheet) { _,_ in updateCaptureSuspension() }
         .onChange(of:newTargetConfirmation) { _,_ in updateCaptureSuspension() }
         .onChange(of:engine.automaticVideo) { _,enabled in
             if enabled && engine.missionTargetLocked { engine.startVideo() }
@@ -85,7 +92,47 @@ struct ContentView: View {
     }
 
     private func updateCaptureSuspension() {
-        engine.suspendCapture(scenePhase != .active || resultSheet || retakeSheet || librarySheet || newTargetConfirmation)
+        engine.suspendCapture(scenePhase != .active || resultSheet || retakeSheet || librarySheet || diagnosticSheet || newTargetConfirmation)
+    }
+
+    /// The diagnostic is captured before this sheet suspends automatic capture.
+    /// Sharing is a separate, explicit user action: never an automatic upload.
+    private var sensorDiagnosticView: some View {
+        NavigationStack {
+            ScrollView {
+                if let snapshot = diagnosticSnapshot {
+                    VStack(alignment:.leading,spacing:18) {
+                        Label("LiDAR-selvtest",systemImage:"stethoscope")
+                            .font(.title2.bold()).foregroundStyle(Atelier.rose)
+                        Text(snapshot.verdict).font(.headline)
+                            .foregroundStyle(Atelier.cream)
+                            .accessibilityIdentifier("lidar-selftest-verdict")
+                        Text(snapshot.report)
+                            .font(.system(.footnote,design:.monospaced))
+                            .foregroundStyle(Atelier.muted)
+                            .textSelection(.enabled)
+                            .frame(maxWidth:.infinity,alignment:.leading)
+                        ShareLink(item:snapshot.report) {
+                            Label("Del kun diagnoseteksten",systemImage:"square.and.arrow.up")
+                                .frame(maxWidth:.infinity,minHeight:48)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Atelier.rose)
+                        Text("Ingen billeder, positionskoordinater eller scanninger indgår. Kun rigtig iPhone-afprøvning kan godkende LiDAR-funktionen.")
+                            .font(.footnote).foregroundStyle(Atelier.muted)
+                    }.padding(20)
+                }
+            }
+            .background(Atelier.ink)
+            .navigationTitle("Sensorstatus")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement:.topBarTrailing) {
+                    Button("Luk") { diagnosticSheet=false }.foregroundStyle(Atelier.rose)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 
     private var resultView: some View {

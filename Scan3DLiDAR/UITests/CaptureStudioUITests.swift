@@ -260,6 +260,21 @@ final class CaptureStudioUITests:XCTestCase {
         assertWithinWidth(normal.buttons["capture-photo"],in:normal)
         screenshot("camera-studio-landscape-SYNTHETIC")
     }
+    func testLiDARSelfTestLabelsSimulatorAsSynthetic()throws {
+        let app=launch()
+        let button=app.buttons["lidar-selftest-button"]
+        XCTAssertTrue(button.waitForExistence(timeout:10))
+        reveal(button,in:app)
+        XCTAssertTrue(button.isHittable)
+        button.tap()
+        XCTAssertTrue(app.navigationBars["Sensorstatus"].waitForExistence(timeout:10))
+        let verdict=app.staticTexts["lidar-selftest-verdict"]
+        XCTAssertTrue(verdict.waitForExistence(timeout:10))
+        XCTAssertTrue(verdict.label.contains("TESTMOTIV"),
+            "Synthetic Simulator evidence must not be mistaken for physical LiDAR")
+        XCTAssertTrue(app.buttons["Del kun diagnoseteksten"].exists)
+        screenshot("lidar-selftest-clearly-synthetic")
+    }
     func testPermissionAndInterruptionGuidance()throws {
         let denied=launch(scenario:"denied")
         XCTAssertTrue(denied.buttons["Åbn kameraindstillinger"].isHittable)

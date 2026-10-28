@@ -45,6 +45,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     private var viewportSize = CGSize.zero
     private var interfaceOrientation: UIInterfaceOrientation = .portrait
     private var qualityTimestamp: TimeInterval?
+    // An actual ARSession delegate callback, not an old cached session frame.
+    private var lastPhysicalFrameAt: Date?
     private var lastQualityTime: TimeInterval = -1
     private var qualityBusy = false
     private var qualityGeneration = UUID()
@@ -57,6 +59,43 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     private let cloud = PointCollector()
     private var depthPointsBySlot: [Int: [CloudVertex]] = [:]
     var hasMeshSupport: Bool { ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) }
+
+    /// A snapshot for the owner's explicit on-device self-test. No camera pixels
+    /// or project files are persisted, logged or uploaded by this diagnostic.
+    func sensorDiagnostic() -> Scan3DSensorDiagnostic {
+        let fixture = isStudioFixture
+        let frame = running && !fixture ? session?.currentFrame : nil
+        let depth = frame?.smoothedSceneDepth ?? frame?.sceneDepth
+        let depthMode: String
+        if frame?.smoothedSceneDepth != nil { depthMode = "smoothedSceneDepth" }
+        else if frame?.sceneDepth != nil { depthMode = "sceneDepth" }
+        else { depthMode = "ingen" }
+        let resolution = depth.map {
+            "\(CVPixelBufferGetWidth($0.depthMap))x\(CVPixelBufferGetHeight($0.depthMap))"
+        } ?? "ingen"
+        let recent = frame != nil && lastPhysicalFrameAt.map {
+            let seconds = Date().timeIntervalSince($0)
+            return seconds >= 0 && seconds <= 3
+        } == true
+        let stable: Bool
+        if let frame, case .normal = frame.camera.trackingState { stable = true }
+        else { stable = false }
+        let center = frame.flatMap { LiDARFrameQuality.center($0) }
+        return Scan3DSensorDiagnostic(
+            fixture: fixture,
+            supportsLiDAR: Self.supportsLiDAR,
+            cameraAuthorized: AVCaptureDevice.authorizationStatus(for:.video) == .authorized,
+            scanning: running && !fixture,
+            recentFrame: recent,
+            depthMode: depthMode,
+            depthResolution: resolution,
+            confidenceMap: depth?.confidenceMap != nil,
+            trackingNormal: stable,
+            centerDepthMeters: center.map { Double($0.meters) },
+            centerSupportedSamples: center?.supportedSamples ?? 0,
+            savedPhotos: savedCount,
+            savedPoints: lidarPointCount)
+    }
 
     @Published var lastPhotoURL: URL?
     @Published var detectedRect: CGRect? // normalized Vision coordinates, diagnostic only
@@ -236,6 +275,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
 
     func stop() {
         cameraPermissionRequestID=nil
+        lastPhysicalFrameAt=nil
         invalidateQuality()
         stopVideo(reason: "cameraPaused")
         session?.pause()
@@ -494,6 +534,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
+        lastPhysicalFrameAt=nil
         invalidateQuality()
         stopVideo(reason: "sessionError")
         running = false
@@ -507,6 +548,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
+        lastPhysicalFrameAt=nil
         invalidateQuality()
         stopVideo(reason: "sessionInterrupted")
         // Apple: do not pause inside this callback, or interruption-ended is lost.
@@ -593,7 +635,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
-        guard Self.supportsLiDAR, running else { return }
+        guard Self.supportsLiDAR, running, self.session === session else { return }
+        lastPhysicalFrameAt = Date()
         if videoState == .recording {
             let thermal = ProcessInfo.processInfo.thermalState
             if thermal == .serious || thermal == .critical { stopVideo(reason: "thermal") }

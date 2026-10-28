@@ -61,4 +61,5 @@ jobs:
           check export Sources/GeometryExport.swift Tests/export/main.swift
           check geometry-preview Sources/GeometryExport.swift Sources/GeometryPreview.swift Tests/geometry-preview/main.swift
           check automatic Sources/AutomaticCapture.swift Tests/automatic/main.swift
+          check sensor-diagnostic Sources/SensorDiagnostic.swift Tests/sensor-diagnostic/main.swift
           echo "Portable suites passed on: $SCAN3D_SOURCE_COMMIT"
