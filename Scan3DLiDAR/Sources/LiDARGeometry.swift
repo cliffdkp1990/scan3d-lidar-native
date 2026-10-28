@@ -7,9 +7,8 @@ import simd
 /// Camera intrinsics and capture image dimensions are accounted for; results remain approximate.
 enum LiDARDepthSampler {
     static func sample(frame: ARFrame, into collector: PointCollector, target: CloudVertex?) -> Int {
-        guard let selected=LiDARFrameQuality.selected(frame),
-              let confidence=selected.data.confidenceMap else { return 0 }
-        return DepthBufferSampler.sample(depth:selected.data.depthMap,confidence:confidence,intrinsics:frame.camera.intrinsics,
+        guard let selected=LiDARFrameQuality.selected(frame) else { return 0 }
+        return DepthBufferSampler.sample(depth:selected.depth,confidence:selected.confidence,intrinsics:frame.camera.intrinsics,
             imageSize:SIMD2<Float>(Float(CVPixelBufferGetWidth(frame.capturedImage)),Float(CVPixelBufferGetHeight(frame.capturedImage))),
             transform:frame.camera.transform,into:collector,target:target)
     }
