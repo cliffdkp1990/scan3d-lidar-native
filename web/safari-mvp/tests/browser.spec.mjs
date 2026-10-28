@@ -159,6 +159,19 @@ test('home-screen metadata and app icons load, with honest Chrome iPhone instruc
   await page.locator('#install-app').click();await expect(page.locator('#install-dialog')).toBeVisible();await expect(page.locator('#install-instructions')).toContainText('I Chrome på iPhone');await expect(page.locator('#install-instructions')).toContainText('Del');await expect(page.locator('#native-install')).toBeHidden();await expect(page.locator('#install-dialog')).toContainText('Projekter i en anden browser');await page.locator('#close-install').click();
   expect(await page.locator('#new-project').evaluate(b=>getComputedStyle(b).userSelect)).toBe('none');expect(await page.locator('#project-name').evaluate(b=>getComputedStyle(b).userSelect)).toBe('text');
 });
+test('Safari iPhone home-screen help never asks for ZIP, login or native app signing',async({page})=>{
+  await page.addInitScript(()=>{Object.defineProperty(navigator,'userAgent',{value:'iPhone Version/27 Safari/604.1',configurable:true});});
+  await ready(page);
+  await expect(page.locator('#pwa-update')).toBeHidden();
+  await page.locator('#install-app').click();
+  await expect(page.locator('#install-instructions')).toContainText('I Safari på iPhone');
+  await expect(page.locator('#install-instructions')).toContainText('Føj til hjemmeskærm');
+  await expect(page.locator('#install-instructions')).toContainText('Ingen ZIP');
+  await page.locator('#close-install').click();
+  await page.locator('#camera-help').click();
+  await expect(page.locator('#permission-guide')).toContainText('Safari');
+  await page.locator('#close-permissions').click();
+});
 test('camera help reads permissions without requesting them and recovers from a denied request',async({page})=>{
   await page.addInitScript(()=>{window.qaCameraCalls=0;Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:async()=>{window.qaCameraCalls++;throw new DOMException('test denial','NotAllowedError');}}});Object.defineProperty(navigator,'permissions',{configurable:true,value:{query:async()=>({state:'denied'})}});});
   await ready(page);await page.locator('#camera-help').click();await expect(page.locator('#permission-results')).toContainText('Blokeret');expect(await page.evaluate(()=>window.qaCameraCalls)).toBe(0);await expect(page.locator('#permission-note')).toContainText('ingen mikrofon');await page.locator('#close-permissions').click();
