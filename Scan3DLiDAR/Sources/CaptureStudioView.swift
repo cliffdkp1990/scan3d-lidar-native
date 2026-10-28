@@ -15,6 +15,7 @@ struct CaptureStudioView: View {
     let size:CGSize
     let onLibrary:()->Void
     let onResult:()->Void
+    let onDiagnostics:()->Void
     let onRetake:()->Void
     let onNewTarget:()->Void
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -225,10 +226,19 @@ struct CaptureStudioView: View {
     }
 
     private var quality:some View {
-        LazyVGrid(columns:[GridItem(.adaptive(minimum:140),spacing:10)],spacing:10) {
-            indicator("BILLEDE",value:engine.focusAdjusting ? "Fokuserer" : engine.photoCondition.title,icon:"camera.aperture",good:engine.photoCondition == .ready && !engine.focusAdjusting)
-            indicator("LIDAR",value:engine.depthSupport,icon:"cube.transparent",good:engine.depthReliable)
-            indicator("SPORING",value:engine.trackingNormal ? "Stabil" : "Afventer",icon:"viewfinder",good:engine.trackingNormal)
+        VStack(spacing:10) {
+            LazyVGrid(columns:[GridItem(.adaptive(minimum:140),spacing:10)],spacing:10) {
+                indicator("BILLEDE",value:engine.focusAdjusting ? "Fokuserer" : engine.photoCondition.title,icon:"camera.aperture",good:engine.photoCondition == .ready && !engine.focusAdjusting)
+                indicator("LIDAR",value:engine.depthSupport,icon:"cube.transparent",good:engine.depthReliable)
+                indicator("SPORING",value:engine.trackingNormal ? "Stabil" : "Afventer",icon:"viewfinder",good:engine.trackingNormal)
+            }
+            Button(action:onDiagnostics) {
+                Label("Test min LiDAR",systemImage:"stethoscope")
+                    .frame(maxWidth:.infinity,minHeight:48)
+            }
+            .buttonStyle(.bordered)
+            .disabled(engine.savingPhoto || engine.videoBusy)
+            .accessibilityIdentifier("lidar-selftest-button")
         }
     }
     private func indicator(_ title:String,value:String,icon:String,good:Bool)->some View {
