@@ -25,10 +25,28 @@
   </header>
   <main id="workspace">
     <div class="launch-bar" aria-label="Åbning og tilladelser"><span id="launch-state" class="pill">Scan3D</span><button id="install-app">Tilføj på hjemmeskærm</button><button id="camera-help">Kamera og hjælp</button></div>
-    <div class="intro"><p class="eyebrow">SAFARI PÅ IPHONE · LOKAL REVIEWVERSION</p><h1>Dit motiv.<br>Dine muligheder.</h1>
+    <div class="intro"><p class="eyebrow">SAFARI PÅ IPHONE · LOKAL REVIEWVERSION</p><h1>Dit motiv. <br>Dine muligheder.</h1>
       <p>Tag fotos og video, gem projekter, og undersøg dine OBJ- og PLY-filer i 3D.</p>
-      <p class="scope">LiDAR kræver en native iPhone-app. Åbn dens modelprojekter her i Safari. Fotos bliver ikke automatisk til en 3D-model.</p>
+      <p class="scope">Saml fotos og video her, eller åbn en model fra den native scanner. Ægte LiDAR kræver en installeret native iPhone-app.</p>
     </div>
+    <section id="capture-guide" class="capture-guide" aria-labelledby="capture-title" data-selected="false">
+      <div class="section-title"><h2 id="capture-title">Hvad vil du indfange?</h2><span class="pill">Start her</span></div>
+      <p id="capture-choice-help" class="caption">Vælg rum eller genstand.</p>
+      <div class="capture-choices">
+        <button type="button" data-capture-mode="room" aria-pressed="false" aria-label="Vælg vejledning til et rum">
+          <svg class="capture-art room-art" viewBox="0 0 240 125" aria-hidden="true" focusable="false"><path d="M32 87 119 115 211 82 121 53Z" fill="#d4dfd1"/><path d="M32 87V25l89-18v46M211 82V24L121 7" fill="none" stroke="#607b6f" stroke-width="3"/><path d="m121 53 90 29M121 53 32 87" fill="none" stroke="#8da394" stroke-width="2"/><path d="m54 58 39 11v22L54 80Zm39 11 31-10v22L93 91Z" fill="#f8f7ec" stroke="#315c4c" stroke-width="2"/><path d="m54 58 31-10 39 11-31 10Z" fill="#c4d2bd" stroke="#315c4c" stroke-width="2"/><path d="M155 33v24m-14 12 14-12 17 7" fill="none" stroke="#b28e45" stroke-width="4" stroke-linecap="round"/><circle cx="155" cy="29" r="12" fill="#d9c48e"/><path d="M12 100q25 19 59 17m116-9 38-10" fill="none" stroke="#b28e45" stroke-width="2" stroke-dasharray="4 5"/></svg>
+          <span class="capture-card-title">Et rum</span><span class="capture-card-caption">Overblik, vægge og større motiver</span>
+        </button>
+        <button type="button" data-capture-mode="object" aria-pressed="false" aria-label="Vælg vejledning til en genstand">
+          <svg class="capture-art object-art" viewBox="0 0 240 125" aria-hidden="true" focusable="false"><ellipse cx="120" cy="105" rx="65" ry="11" fill="#dbd9bf"/><path d="M105 20h30v18c0 15 23 21 23 39 0 21-16 28-38 28s-38-7-38-28c0-18 23-24 23-39Z" fill="#305e4d"/><ellipse cx="120" cy="20" rx="15" ry="5" fill="#bdc9a8"/><path d="M108 43c-1 17-14 23-14 35s9 18 20 19" fill="none" stroke="#89a78b" stroke-width="5" stroke-linecap="round"/><path d="M73 29C35 43 32 83 65 97m105-63c31 14 40 42 15 61" fill="none" stroke="#b28e45" stroke-width="2" stroke-dasharray="5 5"/><path d="m61 87 4 10-11-1m126-12 5 11 9-7" fill="none" stroke="#b28e45" stroke-width="2"/><rect x="27" y="43" width="26" height="35" rx="5" fill="#f8f7ec" stroke="#607b6f" stroke-width="2"/><circle cx="40" cy="55" r="4" fill="#b28e45"/></svg>
+          <span class="capture-card-title">En genstand</span><span class="capture-card-caption">Detaljer fra flere sider og vinkler</span>
+        </button>
+      </div>
+      <p id="capture-summary" class="capture-summary" role="status"></p>
+      <details id="capture-steps" hidden><summary id="capture-step-title">Optagevejledning</summary><ol id="capture-step-list"></ol><p class="caption">Vejledningen hjælper med optagelsen. Den måler ikke scanningskvalitet eller præcision. Dit vejledningsvalg gemmes i denne browser og indgår ikke i projektfilen.</p></details>
+      <p id="capture-next" class="caption" hidden></p>
+      <p id="capture-storage-note" class="caption" role="status" hidden>Vejledningsvalget kan ikke gemmes her og gælder kun, mens denne visning er åben. Dine fotos og projektfiler håndteres separat.</p>
+    </section>
     <div class="project-bar">
       <div><label for="project-name">Aktivt projekt</label><input id="project-name" maxlength="100" placeholder="Opret eller åbn et projekt" disabled>
         <p id="save-state" role="status">Intet projekt valgt</p></div>
@@ -73,7 +91,7 @@
     <section class="panel" id="depth-panel" aria-labelledby="depth-title">
       <div class="section-title"><h2 id="depth-title">Dybde fra din iPhone.</h2><span class="pill">Valgfri forbindelse</span></div>
       <p>På iPhone: Scan med den native Scan3D-app og importér dens projektfil her. Den bruger ARKit på en understøttet LiDAR-enhed.</p>
-      <details><summary>Hvorfor virker LiDAR ikke direkte her?</summary><p>Safari-websiden har ikke adgang til telefonens ARKit-LiDAR. Den native scanner skal først signeres, installeres og afprøves på din iPhone; den installation er endnu ikke verificeret. Gratis udviklersignering udløber efter syv dage, medmindre den fornyes. Sensoren udløber ikke.</p></details>
+      <details><summary>Hvorfor virker LiDAR ikke direkte her?</summary><p>Websiden har ikke adgang til telefonens ARKit-LiDAR. Den native scanner skal først signeres, installeres og afprøves på din iPhone; den installation er endnu ikke verificeret. Gratis udviklersignering udløber efter syv dage, medmindre den fornyes. Sensoren udløber ikke.</p></details>
       <details id="depth-options"><summary>Live RGBD til Chrome på Windows</summary>
         <p>Kræver Record3D med Wi-Fi-tilkøb, åben på din iPhone, samt Chrome på en anden enhed på samme private Wi-Fi. Køb og installation udføres ikke af appen. Brug ikke Chrome på den samme iPhone under streaming.</p>
         <p>Start <strong>Start-Chrome-LiDAR.ps1</strong> på Windows. Start Wi-Fi-streaming i Record3D, og skriv appens viste IPv4-adresse. Ingen firewallændring eller upload.</p>
