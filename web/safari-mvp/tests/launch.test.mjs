@@ -5,6 +5,7 @@ test('iPhone Chrome, iPad desktop mode and standalone are detected without confl
  assert.deepEqual(launchContext({userAgent:'iPhone CriOS/154',standalone:true}),{ios:true,chromeIOS:true,standalone:true});
  assert.equal(launchContext({userAgent:'Macintosh',platform:'MacIntel',maxTouchPoints:5}).ios,true);
  assert.equal(launchContext({userAgent:'Windows Chrome/154'}).ios,false);
+ assert.deepEqual(launchContext({userAgent:'iPhone Version/27 Safari/604.1',standalone:false}),{ios:true,chromeIOS:false,standalone:false});
 });
 test('unknown permission or policy does not claim camera permission was granted',()=>{
  const rows=cameraChecks({secure:true,mediaAvailable:true,policyAllowed:undefined});
