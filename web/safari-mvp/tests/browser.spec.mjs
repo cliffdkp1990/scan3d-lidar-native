@@ -180,7 +180,10 @@ test('guided capture creates one project, persists its choice and preserves phot
   await page.reload();await saved(page);await expect(page.locator('[data-capture-mode="object"]')).toHaveAttribute('aria-pressed','true');
   await page.locator('#capture-step-title').click();await expect(page.locator('#capture-step-list li')).toHaveCount(3);
   await page.evaluate(()=>document.documentElement.style.fontSize='200%');
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  const overflow=()=>page.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth,elements:[...document.querySelectorAll('main *')].map(e=>{const r=e.getBoundingClientRect();return {tag:e.tagName,id:e.id,width:r.width,right:r.right};}).filter(r=>r.width>0&&r.right>innerWidth+1).slice(0,8)}));
+  let layout=await overflow();expect(layout.documentWidth,JSON.stringify(layout)).toBeLessThanOrEqual(layout.width+1);
+  await page.evaluate(()=>document.documentElement.style.fontFamily='Verdana,sans-serif');
+  layout=await overflow();expect(layout.documentWidth,JSON.stringify(layout)).toBeLessThanOrEqual(layout.width+1);
   for(const button of await page.locator('[data-capture-mode]').all()){const box=await button.boundingBox();expect(box.width).toBeGreaterThanOrEqual(44);expect(box.height).toBeGreaterThanOrEqual(44);}
   await page.locator('#prepare-export').click();const backup=JSON.parse(await download(page,'#download-backup'));
   expect(backup.version).toBe(2);expect(backup.project.photos).toHaveLength(1);expect(backup.project.model).toBeNull();
