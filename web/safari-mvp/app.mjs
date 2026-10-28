@@ -5,11 +5,13 @@ import { parseGeometry, demoOBJ } from './geometry.mjs';
 import { validatePrintableMesh, exportBinarySTL } from './stl.mjs';
 import { ModelViewer } from './viewer.mjs';
 import { Record3DSession } from './record3d-session.mjs';
+import { VIDEO, VideoRecorder, decodeVideo, videoType } from './video.mjs';
 
 const $ = selector => document.querySelector(selector);
 const store = new ProjectStore();
 let active = null, projects = [], dirty = false, busy = true, cameraState = 'stopped', modelId = null;
 let photoURLs = [], modelURL = null, stlGeometry = null, backupURL = null, backupFile = null, dialogURL = null;
+let recording = false, videoURLs = [], recoveryURL = null, videoClock = null;
 const delayedURLs = new Set();
 const status = (message, error = false) => { $('#status').textContent = message; $('#status').dataset.error = String(error); };
 const delayedRevoke = url => { if (url) { delayedURLs.add(url); setTimeout(() => { URL.revokeObjectURL(url); delayedURLs.delete(url); }, 30000); } };
@@ -21,20 +23,30 @@ const depth=new Record3DSession($('#rgbd-video'),(state,message)=>{
 try { viewer = new ModelViewer($('#model-canvas'), message => { $('#model-info').textContent = message; }); }
 catch { viewer = { gl: null, clear() {}, setGeometry() {}, action() {} }; $('#model-info').textContent = '3D-grafikken kunne ikke startes. Originale filer kan stadig eksporteres.'; }
 const camera = new CameraSession($('#camera'), navigator.mediaDevices, state => {
+  if (state === 'stopped' && recording) videoRecorder.stop();
   cameraState = state;
   $('#camera-state').textContent = { stopped: 'Kamera slukket', pending: 'Afventer tilladelse', active: 'Live · uden lyd' }[state];
   $('#camera').hidden = state === 'stopped'; $('#camera-placeholder').hidden = state !== 'stopped'; controls();
 });
+const videoRecorder = new VideoRecorder({ onState: state => {
+  $('#stop-video').disabled = state !== 'recording';
+  if (state === 'stopping') $('#video-state').textContent = 'Afslutter og gemmer video…';
+} });
 function controls() {
-  for (const id of ['new-project','choose-import','import-legacy','open-library','demo-model']) $('#'+id).disabled = busy;
-  for (const id of ['save-project','choose-photo','choose-model','prepare-export']) $('#'+id).disabled = busy || !active;
-  $('#project-name').disabled = busy || !active; $('#capture-file').disabled = busy || !active;
-  $('#start-camera').disabled = busy || !active || cameraState !== 'stopped';
-  $('#take-photo').disabled = busy || !active || cameraState !== 'active';
+  const locked = busy || recording;
+  for (const id of ['new-project','choose-import','import-legacy','open-library','demo-model']) $('#'+id).disabled = locked;
+  for (const id of ['save-project','choose-photo','choose-model','prepare-export','choose-video']) $('#'+id).disabled = locked || !active;
+  $('#choose-video').disabled ||= (active?.videos || []).length >= VIDEO.count;
+  $('#project-name').disabled = locked || !active; $('#capture-file').disabled = locked || !active;
+  $('#start-camera').disabled = locked || !active || cameraState !== 'stopped';
+  $('#take-photo').disabled = locked || !active || cameraState !== 'active';
+  $('#start-video').disabled = locked || !active || cameraState !== 'active' || !videoRecorder.supported || (active.videos || []).length >= VIDEO.count;
+  $('#stop-video').hidden = !recording;
+  $('#photo-tab').disabled = recording; $('#model-tab').disabled = recording;
   $('#stop-camera').hidden = cameraState === 'stopped'; $('#stop-camera').disabled = false;
-  $('#connect-depth').disabled=busy||depth.state!=='stopped';
+  $('#connect-depth').disabled=locked||depth.state!=='stopped';
   $('#depth-address').disabled=depth.state!=='stopped';
-  $('#capture-depth').disabled=busy||depth.state!=='live';
+  $('#capture-depth').disabled=locked||depth.state!=='live';
   $('#stop-depth').disabled=depth.state==='stopped';
   document.querySelectorAll('[data-view]').forEach(b => { b.disabled = busy || !active?.model || !viewer.gl; });
   $('#save-state').textContent = !active ? 'Intet projekt valgt' : dirty ? 'Kladde · endnu ikke gemt. Bevar fanen eller eksportér.' : 'Gemt lokalt · revision '+active.revision;
@@ -45,6 +57,7 @@ function clearBackup() {
   $('#download-backup').hidden = true; $('#download-backup').removeAttribute('href'); $('#share-backup').hidden = true;
 }
 function showTab(name, focus = false) {
+  if (recording) return;
   if (name === 'model') camera.stop();
   for (const kind of ['photo','model']) {
     const selected = name === kind;
@@ -61,10 +74,25 @@ function library() {
   for (const project of projects) {
     const button=document.createElement('button');button.className='project-card';button.dataset.projectId=project.id;
     const text=document.createElement('span'),title=document.createElement('strong'),meta=document.createElement('small'),symbol=document.createElement('span');
-    title.textContent=project.name;meta.textContent=project.photos.length+' fotos · '+(project.model?'3D-model':'ingen 3D-model');
+    title.textContent=project.name;meta.textContent=project.photos.length+' fotos · '+(project.videos?.length ? project.videos.length+' videoer · ' : '')+(project.model?'3D-model':'ingen 3D-model');
     text.append(title,meta);symbol.textContent=project.model?'◇':'▧';symbol.className='project-symbol';symbol.setAttribute('aria-hidden','true');button.append(text,symbol);
     button.addEventListener('click',()=>perform(async()=>{ await flush();await refreshLibrary();const selected=projects.find(p=>p.id===project.id);if(!selected)throw new Error('Projektet kunne ikke genåbnes. Originalen er bevaret.');await verifyAssets(selected);if(selected.model)parseGeometry(await selected.model.blob.text(),selected.model.name);active=selected;dirty=false;camera.stop();clearBackup();render();$('#library').close();showTab(selected.model?'model':'photo',true);status('Projektet er genåbnet fra lokalt lager.'); }));
     root.append(button);
+  }
+}
+function renderVideos() {
+  const root = $('#videos'); root.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
+  videoURLs.forEach(URL.revokeObjectURL); videoURLs = []; root.replaceChildren();
+  $('#video-count').textContent = active?.videos?.length || 0;
+  for (const [i, asset] of (active?.videos || []).entries()) {
+    const card = document.createElement('article'), video = document.createElement('video'), link = document.createElement('a'), caption = document.createElement('p');
+    const url = URL.createObjectURL(asset.blob); videoURLs.push(url);
+    card.className = 'video-card'; video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.src = url;
+    video.setAttribute('aria-label', 'Projektvideo ' + (i + 1));
+    caption.textContent = 'Klip '+(i+1)+' · '+asset.duration.toFixed(1)+' sek. · '+(asset.bytes / 1024 / 1024).toFixed(1)+' MiB';
+    video.addEventListener('error', () => { caption.textContent = 'Browseren kan ikke afspille dette klip. Download og sikkerhedskopi er stadig tilgængelige.'; });
+    link.className = 'button'; link.href = url; link.download = safeFilename(asset.name); link.textContent = 'Hent video '+(i+1);
+    card.append(video, caption, link); root.append(card);
   }
 }
 function renderPhotos() {
@@ -99,7 +127,7 @@ function renderModel() {
     controls();
   }).catch(error=>{if(active?.model?.id===selectedId){$('#model-empty').hidden=false;$('#model-empty').textContent='Modellen kunne ikke vises.';status(error.message,true);}});
 }
-function render() { $('#project-name').value=active?.name||'';renderPhotos();renderModel();library();controls(); }
+function render() { $('#project-name').value=active?.name||'';renderPhotos();renderVideos();renderModel();library();controls(); }
 async function refreshLibrary() {
   const values=await store.list(),valid=[];let invalid=0;
   for(const p of values){try{validateProject(p);valid.push(p);}catch{invalid++;}}
@@ -114,7 +142,7 @@ async function commit(next) {
   try{await flush();status('Projektet er gemt lokalt.');}catch(error){status(error.message,true);controls();}
 }
 async function perform(fn) {
-  if(busy)return;busy=true;controls();
+  if(busy || recording)return;busy=true;controls();
   try{await fn();}catch(error){const message=error?.message||'Handlingen kunne ikke gennemføres. Dine filer er bevaret.';status(message,true);if($('#library').open)$('#library-note').textContent=message;}
   finally{busy=false;controls();}
 }
@@ -126,8 +154,38 @@ async function importedPhotos(project) {
     if(asset.needsDecode){const copy=await jpegCopy(image,image.naturalWidth,image.naturalHeight);result.push(await makeAsset(copy.blob,asset.name,{width:copy.width,height:copy.height}));}
     else{if(image.naturalWidth!==asset.width||image.naturalHeight!==asset.height)throw new Error('Fotoets faktiske størrelse stemmer ikke med sikkerhedskopien.');result.push(asset);}
   }
+  for (const asset of project.videos || []) {
+    const metadata = await decodeVideo(asset.blob, asset.duration);
+    if (metadata.width !== asset.width || metadata.height !== asset.height)
+      throw new Error('Videoens størrelse stemmer ikke med sikkerhedskopien.');
+  }
   const next={...project,photos:result};if(next.model)parseGeometry(await next.model.blob.text(),next.model.name);return validateProject(next);
 }
+async function addVideo(blob, name, seconds) {
+  if (!active) throw new Error('Opret eller åbn et projekt først.');
+  if ((active.videos || []).length >= VIDEO.count) throw new Error('Højst tre videoer pr. projekt. Opret et nyt projekt.');
+  // Keep an independent download available if decoding, project budget or storage fails.
+  delayedRevoke(recoveryURL); recoveryURL = URL.createObjectURL(blob);
+  $('#recover-video').href = recoveryURL; $('#recover-video').download = safeFilename(name); $('#recover-video').hidden = false;
+  const metadata = await decodeVideo(blob, seconds), asset = await makeAsset(blob, name, metadata);
+  await commit({...active, videos: [...(active.videos || []), asset]});
+  if (!dirty) { $('#recover-video').hidden = true; delayedRevoke(recoveryURL); recoveryURL = null; }
+}
+$('#start-video').addEventListener('click', async () => {
+  if (busy || recording || !active || (active.videos || []).length >= VIDEO.count) return;
+  recording = true; controls(); const started = performance.now();
+  $('#video-state').textContent = 'Optager · 0 / 30 sek. · uden lyd';
+  videoClock = setInterval(() => { if (videoRecorder.state === 'recording') $('#video-state').textContent = 'Optager · '+Math.min(30,Math.floor((performance.now()-started)/1000))+' / 30 sek. · uden lyd'; }, 250);
+  try {
+    const {blob, duration} = await videoRecorder.start(camera.stream);
+    clearInterval(videoClock); recording = false;
+    await perform(() => addVideo(blob, 'Kameravideo-'+new Date().toISOString().replace(/[:.]/g,'-')+(videoType(blob.type)==='video/mp4'?'.mp4':'.webm'), duration));
+  } catch (error) { status(error.message, true); }
+  finally { clearInterval(videoClock); recording = false; $('#video-state').textContent = 'Optagelsen er afsluttet. Se klippet eller statusmeddelelsen.'; controls(); }
+});
+$('#stop-video').addEventListener('click', () => videoRecorder.stop());
+$('#choose-video').addEventListener('click', () => $('#video-file').click());
+$('#video-file').addEventListener('change', event => { const file=event.target.files?.[0];event.target.value='';if(file)perform(()=>addVideo(file,file.name)); });
 async function addPhoto(blob,name,source) {
   if(!active)throw new Error('Opret eller åbn et projekt først.');
   if(active.photos.length>=LIMITS.photos)throw new Error('Projektet har allerede 30 fotos. Eksportér en kopi, og opret et nyt projekt.');
@@ -144,8 +202,8 @@ async function addPhoto(blob,name,source) {
 $('#new-project').addEventListener('click',()=>perform(async()=>{await flush();camera.stop();await commit(newProject('Projekt '+new Date().toLocaleString('da-DK',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})));showTab('photo');$('#project-name').focus();$('#project-name').select();}));
 $('#project-name').addEventListener('input',()=>{if(active){active={...active,name:$('#project-name').value};dirty=true;clearBackup();controls();}});
 $('#save-project').addEventListener('click',()=>perform(async()=>{await flush();render();status('Projektet er gemt lokalt.');}));
-$('#start-camera').addEventListener('click',async()=>{try{if(await camera.start())status('Kameraet er aktivt uden lyd. Tryk Tag foto.');}catch(error){status(error.message,true);}});
-$('#stop-camera').addEventListener('click',()=>{camera.stop();status('Kameraet er slukket.');});
+$('#start-camera').addEventListener('click',async()=>{try{if(await camera.start())status('Kameraet er aktivt uden lyd. Vælg Tag foto eller Optag video.');}catch(error){status(error.message,true);}});
+$('#stop-camera').addEventListener('click',()=>{const wasRecording=recording;videoRecorder.stop();camera.stop();if(!wasRecording)status('Kameraet er slukket.');});
 $('#connect-depth').addEventListener('click',async()=>{
   camera.stop();try{await depth.start($('#depth-address').value.trim(),{encodingConfirmed:$('#depth-encoding').checked});}catch(error){status(error.message,true);}
 });
@@ -165,7 +223,7 @@ $('#model-file').addEventListener('change',event=>{const file=event.target.files
   if(file.size>LIMITS.model)throw new Error('3D-filen overstiger 8 MiB.');
   parseGeometry(await file.text(),file.name);const asset=await makeAsset(file,file.name,{origin:'import'});
   let project=active;
-  if(active.model){await flush();project={...newProject(active.name+' · ny model'),photos:active.photos};}
+  if(active.model){await flush();project={...newProject(active.name+' · ny model'),photos:active.photos,videos:active.videos||[]};}
   await commit({...project,model:asset});showTab('model',true);
 });});
 $('#export-stl').addEventListener('click',()=>perform(async()=>{
@@ -206,9 +264,9 @@ $('#import-legacy').addEventListener('click',()=>perform(async()=>{
   for(const p of list)ready.push(await importedPhotos(p));const copies=await store.importLegacy(ready,'legacy-'+await sha256(new Blob([text])));
   active=copies[0];dirty=false;clearBackup();await refreshLibrary();render();status(copies.length+' tidligere projekt(er) importeret. Det oprindelige localStorage er bevaret.');
 }));
-document.addEventListener('visibilitychange',()=>{if(document.hidden){camera.stop();depth.stop();}});
-window.addEventListener('pagehide',()=>{camera.stop();depth.stop();});
-window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){videoRecorder.stop();camera.stop();depth.stop();}});
+window.addEventListener('pagehide',()=>{videoRecorder.stop();camera.stop();depth.stop();});
+window.addEventListener('beforeunload',event=>{if(dirty||recording||recoveryURL){event.preventDefault();event.returnValue='';}});
 async function boot() {
   try{
     await refreshLibrary();
@@ -216,6 +274,6 @@ async function boot() {
     status(active?'Seneste projekt er åbnet. Kameraet er slukket.':'Opret et nyt projekt eller importér en sikkerhedskopi.');
   }catch(error){status(error.message,true);}
   try{$('#import-legacy').hidden=!localStorage.getItem(LEGACY_KEY);}catch{}
-  busy=false;render();document.body.dataset.ready='true';
+  busy=false;render();if(!videoRecorder.supported)$('#video-state').textContent='Denne browser kan ikke optage livevideo. Brug Vælg video. MP4 eller WebM skal kunne afspilles i browseren.';document.body.dataset.ready='true';
 }
 boot();
