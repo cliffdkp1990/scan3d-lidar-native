@@ -7,6 +7,7 @@ import { ModelViewer } from './viewer.mjs';
 import { Record3DSession } from './record3d-session.mjs';
 import { VIDEO, VideoRecorder, decodeVideo, videoType } from './video.mjs';
 import { initLaunchHelp } from './launch.mjs';
+import { initPWAUpdates, canSwitchPWA } from './pwa-updates.mjs';
 import { CaptureGuide } from './capture-guide.mjs';
 import { PLANS, validMode } from './capture-guide-core.mjs';
 
@@ -16,6 +17,7 @@ const store = new ProjectStore();
 let active = null, projects = [], dirty = false, busy = true, cameraState = 'stopped', modelId = null;
 let photoURLs = [], modelURL = null, stlGeometry = null, backupURL = null, backupFile = null, dialogURL = null;
 let recording = false, videoURLs = [], recoveryURL = null, videoClock = null;
+let pwaUpdates = null;
 const delayedURLs = new Set();
 const status = (message, error = false) => { $('#status').textContent = message; $('#status').dataset.error = String(error); };
 const delayedRevoke = url => { if (url) { delayedURLs.add(url); setTimeout(() => { URL.revokeObjectURL(url); delayedURLs.delete(url); }, 30000); } };
@@ -56,6 +58,7 @@ function controls() {
   document.querySelectorAll('[data-view]').forEach(b => { b.disabled = busy || !active?.model || !viewer.gl; });
   $('#save-state').textContent = !active ? 'Intet projekt valgt' : dirty ? 'Kladde · endnu ikke gemt. Bevar fanen eller eksportér.' : 'Gemt lokalt · revision '+active.revision;
   $('#save-state').dataset.saved = String(Boolean(active && !dirty));
+  pwaUpdates?.refresh();
 }
 function clearBackup() {
   delayedRevoke(backupURL); backupURL = null; backupFile = null;
@@ -288,4 +291,11 @@ async function boot() {
   busy=false;render();if(!videoRecorder.supported)$('#video-state').textContent='Denne browser kan ikke optage livevideo. Brug Vælg video. MP4 eller WebM skal kunne afspilles i browseren.';document.body.dataset.ready='true';
 }
 initLaunchHelp();
+pwaUpdates = initPWAUpdates({
+  button:$('#pwa-update'),
+  isSafe:()=>canSwitchPWA({
+    busy,dirty,recording,recovery:Boolean(recoveryURL),
+    camera:cameraState,depth:depth.state
+  })
+});
 boot();
