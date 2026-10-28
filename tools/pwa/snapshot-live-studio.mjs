@@ -80,6 +80,19 @@ export async function backup(sourceDir,outputDir,{retrieveFile=retrieve}={}) {
      evidence.files?.find(x=>x.file==='sw.js')?.sha256!==SOURCE_SHA||
      evidence.files?.find(x=>x.file==='manifest.webmanifest')?.status!=='HTTP 200')
     throw new Error('Untrusted or changed original public audit receipt');
+  // Original Vercel deployment file, fetched through the owner's Vercel
+  // connection and committed as a non-secret, versioned reference, not guessed.
+  const config=await readFile(new URL('./studio-vercel-original.json',import.meta.url));
+  const rules=JSON.parse(config.toString('utf8'));
+  const header=(source,key)=>rules.headers?.find(r=>r.source===source)?.headers
+    ?.find(h=>h.key===key)?.value;
+  if(rules.cleanUrls!==false||
+     header('/sw.js','Cache-Control')!=='no-cache'||
+     header('/index.html','Cache-Control')!=='no-cache'||
+     header('/(.*)','X-Content-Type-Options')!=='nosniff'||
+     header('/(.*)','Referrer-Policy')!=='no-referrer'||
+     header('/(.*)','X-Frame-Options')!=='DENY')
+    throw new Error('Original Vercel security/cache headers changed');
   const destination=resolve(outputDir);
   const src=join(destination,'original-public-source');
   const data=[];let total=0;
@@ -97,6 +110,12 @@ export async function backup(sourceDir,outputDir,{retrieveFile=retrieve}={}) {
     data.push({file:name,bytes:result.bytes.length,sha256:digest(result.bytes),
       contentType:result.contentType});
   }
+  // The config was read from the authenticated project's actual deployed
+  // source tree; do not try to fetch it from a public HTTP URL.
+  await writeFile(join(src,'vercel.json'),config,{flag:'wx'});
+  total+=config.length;
+  data.push({file:'vercel.json',bytes:config.length,sha256:digest(config),
+    contentType:'application/json',provenance:'Vercel deployment source connector'});
   const manifest=JSON.parse(await readFile(join(src,'manifest.webmanifest'),'utf8'));
   if(manifest.display!=='standalone'||manifest.id!=='./'||manifest.start_url!=='./index.html'||
      manifest.scope!=='./')throw new Error('Original PWA app identity changed');
@@ -111,7 +130,7 @@ export async function backup(sourceDir,outputDir,{retrieveFile=retrieve}={}) {
     originalAppIdentity:{id:manifest.id,start_url:manifest.start_url,scope:manifest.scope},
     files:data,filesVerified:data.length,bytesVerified:total,
     containsUserScans:false,containsPrivateFiles:false,
-    containsVercelBuildConfig:false,isCompleteDeploymentSource:false,
+    containsVercelBuildConfig:true,isCompleteDeploymentSource:false,
     writeToProduction:false,readyForDeployment:false,
     nativeLiDAR:false,physicalIPhoneTested:false
   };
