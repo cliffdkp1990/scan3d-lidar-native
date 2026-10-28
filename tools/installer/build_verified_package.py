@@ -132,9 +132,27 @@ def verified_payload(artifact: bytes, expected_sha: str) -> tuple[dict, bytes]:
     return manifest, ipa
 
 
+def artifact_bytes(artifact: pathlib.Path) -> bytes:
+    if artifact.is_dir():
+        # actions/download-artifact extracts exactly these two files.
+        entries = list(artifact.iterdir())
+        if {entry.name for entry in entries} != REQUIRED or len(entries) != len(REQUIRED):
+            raise ValueError("Downloaded native artifact has extra or missing files")
+        if any(entry.is_symlink() or not entry.is_file() for entry in entries):
+            raise ValueError("Native artifact contains a link or non-file")
+        if (artifact / "Scan3D-unsigned.ipa").stat().st_size > MAX_IPA_BYTES:
+            raise ValueError("Native iPhone IPA too large")
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in sorted(REQUIRED):
+                archive.writestr(name, (artifact / name).read_bytes())
+        return output.getvalue()
+    return artifact.read_bytes()
+
+
 def build(artifact: pathlib.Path, installer_dir: pathlib.Path,
           expected_sha: str, output: pathlib.Path) -> dict:
-    manifest, ipa = verified_payload(artifact.read_bytes(), expected_sha)
+    manifest, ipa = verified_payload(artifact_bytes(artifact), expected_sha)
     folder = installer_dir
     required_files = ("Start-Scan3D.cmd", "Start-Scan3D.ps1",
                       "Test-Scan3D.ps1", "README_DA.md")
@@ -142,6 +160,14 @@ def build(artifact: pathlib.Path, installer_dir: pathlib.Path,
     template = assets["Start-Scan3D.ps1"].decode("utf-8")
     assets["Start-Scan3D.ps1"] = pinned_script(
         template, expected_sha, manifest["sha256"]).encode("utf-8")
+    # The included human guide originally described PR23. Update immutable pins
+    # in generated bundles so a newer main build is never advertised as PR23.
+    guide = assets["README_DA.md"].decode("utf-8")
+    guide = guide.replace("3863502b6aa9929bbe6fb204e0c71ed05e1ef0bb", expected_sha)
+    guide = guide.replace("8c1987f7a3bae83742d95025c2c7ee219b711ab446a02948141871747e536fac",
+                          manifest["sha256"])
+    guide = guide.replace("iOS-build fra PR #23", "præcist verificeret native iOS-build")
+    assets["README_DA.md"] = guide.encode("utf-8")
     assets["Scan3D-unsigned.ipa"] = ipa
     assets["SCAN3D_PACKAGE.json"] = (
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
