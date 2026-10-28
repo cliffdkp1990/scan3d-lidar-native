@@ -116,8 +116,9 @@ test('22px text and all three layouts retain 44px controls without horizontal ov
   await page.screenshot({path:info.outputPath('layout-22px.png'),fullPage:true});
 });
 
-test('video import, playback, reload and v3 backup retain exact bytes; corrupt backup cannot overwrite',async({page})=>{
-  await ready(page);test.skip(!await canDecodeMovie(page),'This engine cannot decode the synthetic H.264 fixture; codec rejection has a separate test.');await create(page,'QA video');await addPhoto(page);
+test('video import roundtrips exact bytes or preserves the file on a real codec rejection',async({page})=>{
+  await ready(page);const decodes=await canDecodeMovie(page);await create(page,'QA video');await addPhoto(page);
+  if(!decodes){await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#status')).toContainText('codec',{timeout:12000});await expect(page.locator('#recover-video')).toBeVisible();expect(await download(page,'#recover-video')).toEqual(await readFile(movie));await expect(page.locator('#video-count')).toHaveText('0');await expect(page.locator('#photo-count')).toHaveText('1');await saved(page);return;}
   await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#video-count')).toHaveText('1');await saved(page);
   const video=page.locator('#videos video');await video.evaluate(v=>v.play());await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(0);await video.evaluate(v=>v.pause());
   expect(await download(page,'#videos a')).toEqual(await readFile(movie));
@@ -137,10 +138,10 @@ test('missing recorder leaves file-video import available',async({page})=>{
   if(await canDecodeMovie(page)){await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#video-count')).toHaveText('1');await saved(page);}
   else {await page.locator('#video-file').setInputFiles(movie);await expect(page.locator('#status')).toContainText('codec',{timeout:12000});await expect(page.locator('#recover-video')).toBeVisible();expect(await download(page,'#recover-video')).toEqual(await readFile(movie));await expect(page.locator('#video-count')).toHaveText('0');await saved(page);}
 });
-test('actual synthetic stream recording locks project changes, finalizes, plays and survives reload',async({page},info)=>{
+test('recording capabilities either finalize a real synthetic stream or retain the import controls',async({page},info)=>{
   await ready(page);
   const supported=await page.evaluate(()=>typeof MediaRecorder==='function'&&typeof document.createElement('canvas').captureStream==='function');
-  test.skip(!supported,'This test engine lacks MediaRecorder/canvas capture; not physical iPhone evidence.');
+  if(!supported){await create(page,'QA uden optagelse');await expect(page.locator('#choose-video')).toBeEnabled();await expect(page.locator('#stop-video')).toBeHidden();await expect(page.locator('#new-project')).toBeEnabled();if(!await page.evaluate(()=>typeof MediaRecorder==='function')){await expect(page.locator('#start-video')).toBeDisabled();await expect(page.locator('#video-state')).toContainText('kan ikke optage');}return;}
   await ready(page,'/?qa=camera-fake');await create(page,'QA optagelse');await page.locator('#start-camera').click();await expect(page.locator('#camera-state')).toHaveText('Live · uden lyd');
   await page.locator('#start-video').click();await expect(page.locator('#video-state')).toContainText('Optager');await expect(page.locator('#new-project')).toBeDisabled();await expect(page.locator('#model-tab')).toBeDisabled();
   await page.waitForTimeout(1200);await page.locator('#stop-video').click();await expect(page.locator('#video-count')).toHaveText('1');await saved(page);

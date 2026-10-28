@@ -36,7 +36,7 @@ export class VideoRecorder {
     if (!this.supported) throw new Error('Livevideo understøttes ikke her. Brug Vælg video i stedet.');
     if (!stream?.getVideoTracks().some(t => t.readyState === 'live') || stream.getAudioTracks().length)
       throw new Error('Start kameraet uden lyd, før du optager video.');
-    const mimeType = ['video/mp4', 'video/webm;codecs=vp8', 'video/webm'].find(t => this.Recorder.isTypeSupported?.(t));
+    const mimeType = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp8', 'video/webm'].find(t => this.Recorder.isTypeSupported?.(t));
     const recorder = new this.Recorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: 1500000 });
     const chunks = []; let bytes = 0, error, done = false;
     this.recorder = recorder;

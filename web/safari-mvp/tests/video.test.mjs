@@ -44,6 +44,10 @@ test('recording reuses video-only stream and waits for final dataavailable befor
 test('duration timeout and track-ended both finalize without stopping the camera themselves',async()=>{
   for(const end of ['timeout','track']){const source=stream(),r=new VideoRecorder({Recorder:FakeRecorder,seconds:0.03}),pending=r.start(source);if(end==='track')source.track.dispatchEvent(new Event('ended'));await pending;assert.equal(r.state,'idle');assert.equal(source.track.readyState,'live');}
 });
+test('explicit H264 is preferred over an ambiguous MP4 container when supported',async()=>{
+  class H264 extends FakeRecorder {static isTypeSupported=type=>type.startsWith('video/mp4');}
+  const r=new VideoRecorder({Recorder:H264}),pending=r.start(stream());assert.equal(FakeRecorder.last.options.mimeType,'video/mp4;codecs=avc1.42E01E');r.stop();await pending;
+});
 test('over-budget data, recorder failure and empty recordings reject without a successful asset',async()=>{
   const r=new VideoRecorder({Recorder:FakeRecorder,maxBytes:1}),result=r.start(stream());FakeRecorder.last.ondataavailable({data:clip()});await assert.rejects(result,/8 MiB/);assert.equal(r.state,'idle');
   const q=new VideoRecorder({Recorder:FakeRecorder}),failure=q.start(stream());FakeRecorder.last.onerror();await assert.rejects(failure,/afbrudt/);
