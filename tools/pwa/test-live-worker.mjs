@@ -18,7 +18,7 @@ assert(!candidate.includes('caches.keys().then(keys=>Promise.all(keys.filter(k=>
 assert(!candidate.includes('localStorage'));
 assert(!candidate.includes('indexedDB'));
 let rejects=0;
-for(const altered of [original+' ',original.replace('cache.addAll','cache.any'),'',candidate]){
+for(const altered of [original+' ',original.replace('c.addAll','c.any'),'',candidate]){
   try{buildPatchedWorker(altered);}catch{rejects++;}
 }
 assert.equal(rejects,4,'Unknown or changed source must refuse patch');
