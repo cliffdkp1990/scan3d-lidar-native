@@ -4,6 +4,44 @@ import simd
 
 /// The same depth/confidence buffer reader is used by ARKit capture and CoreVideo regression tests.
 enum DepthBufferSampler {
+    /// A measured central patch and the *paired* CoreVideo buffers selected for
+    /// subsequent point sampling. Prevents center/raw and cloud/smoothed mismatch.
+    struct Selected {
+        let depth: CVPixelBuffer
+        let confidence: CVPixelBuffer
+        let center: DepthEstimate
+        let origin: LiDARDepthOrigin
+    }
+
+    static func selected(smoothedDepth: CVPixelBuffer?, smoothedConfidence: CVPixelBuffer?,
+                         rawDepth: CVPixelBuffer?, rawConfidence: CVPixelBuffer?) -> Selected? {
+        let smoothCenter: DepthEstimate?
+        if let depth=smoothedDepth, let confidence=smoothedConfidence {
+            smoothCenter=center(depth:depth,confidence:confidence)
+        } else { smoothCenter=nil }
+
+        // Only fall back to a raw measurement if the smoothed source is absent,
+        // malformed, low-confidence or not spatially coherent.
+        let rawCenter: DepthEstimate?
+        if smoothCenter == nil, let depth=rawDepth, let confidence=rawConfidence {
+            rawCenter=center(depth:depth,confidence:confidence)
+        } else { rawCenter=nil }
+
+        switch LiDARDepthFallbackPolicy.choose(
+            smoothedCenterValid:smoothCenter != nil,rawCenterValid:rawCenter != nil) {
+        case .smoothedSceneDepth:
+            guard let depth=smoothedDepth,let confidence=smoothedConfidence,
+                  let estimate=smoothCenter else { return nil }
+            return Selected(depth:depth,confidence:confidence,center:estimate,origin:.smoothedSceneDepth)
+        case .sceneDepth:
+            guard let depth=rawDepth,let confidence=rawConfidence,
+                  let estimate=rawCenter else { return nil }
+            return Selected(depth:depth,confidence:confidence,center:estimate,origin:.sceneDepth)
+        case nil:
+            return nil
+        }
+    }
+
     private struct Maps {
         let width:Int, height:Int, depthStride:Int, confidenceStride:Int
         let depth:UnsafePointer<Float32>, confidence:UnsafePointer<UInt8>
