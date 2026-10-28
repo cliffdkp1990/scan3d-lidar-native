@@ -59,3 +59,28 @@ powershell.exe -NoProfile -File .\Test-Scan3D.ps1
 [AltStore Classic vs PAL](https://github.com/altstoreio/FAQ/blob/main/altstore-pal-v.-altstore-classic.md) ·
 [Remote AltServer](https://github.com/altstoreio/FAQ/blob/main/altstore-classic/remote-altservers.md) ·
 [Windows-installation](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows).
+
+## Automatisk pakke efter hver ny godkendt native iOS-build
+
+**Ny automatisering i denne PR:** `build_verified_package.py` kan modtage den faktiske
+GitHub Actions-artifact med IPA og `SCAN3D_PACKAGE.json` fra et bestået, SHA-bundet
+native-run. Byggeren kontrollerer kilde-SHA, faktisk IPA-hash, hvert arkivmedlems
+SHA-256, det byggede `Info.plist`-versionsnummer, bundle-ID og platform, og opretter:
+
+- `Scan3D_iPhone_verified_<kilde-SHA>.zip`: `Start-Scan3D.cmd`, Windows-sikkerhedsscript,
+  IPA, manifest, dansk guide og kort iPhone-starttekst.
+- `Scan3D_iPhone_verified_<kilde-SHA>.json`: verificeret kvittering for kilde, IPA-hash,
+  arkiv-hash og de endnu ikke udførte Apple-/hardwaretest.
+
+`.github/workflows/scan3d-auto-package-after-native.yml` skal på beskyttet
+`main` for at kunne starte automatisk, når det originale native iOS-workflow er
+**grønt** på samme aktuelle hovedcommit. Automatiseringen afviser gamle builds,
+annullerede jobs og mismatch mellem SHA og hentet artifact. Den opretter kun et
+tidsbegrænset **privat GitHub Actions-artifact**. Den deployer ikke offentligt,
+lægger ikke appen på Google Drive, signerer ikke en Apple-app og installerer
+ikke noget på telefonen uden brugerens handling.
+
+PR #25 er en reviewændring: indtil den merges via normal beskyttet PR-proces,
+er den kontinuerlige `workflow_run`-automatisering **ikke aktiv på main**.
+Den hidtidige kontrollerede PR #23 IPA er en gennemtestet kildeversion, men
+ikke et løfte om, at den er seneste kilde på `main`.
