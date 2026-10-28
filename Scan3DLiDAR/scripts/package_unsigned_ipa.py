@@ -62,6 +62,16 @@ def package(app, output, source_commit):
     if (info.get('CFBundleIdentifier') != 'dk.scan3dstudio.lidar' or info.get('CFBundlePackageType') != 'APPL'
             or info.get('DTPlatformName') != 'iphoneos' or info.get('CFBundleSupportedPlatforms') != ['iPhoneOS']):
         raise ValueError('Unexpected app identity or Simulator build')
+    # A syntactically valid arm64 IPA may still be rejected by installers
+    # when version identifiers are absent. Check the built plist, not just
+    # settings in project.yml, and never distribute a false-green package.
+    version = info.get('CFBundleShortVersionString')
+    build = info.get('CFBundleVersion')
+    if (not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version)
+            or not isinstance(build, str) or not re.fullmatch(r'[0-9]+(?:\.[0-9]+){0,2}', build)):
+        raise ValueError('iPhone Info.plist lacks valid CFBundleShortVersionString / CFBundleVersion')
+    if info.get('UIFileSharingEnabled') is not True or info.get('LSSupportsOpeningDocumentsInPlace') is not True:
+        raise ValueError('iPhone Info.plist does not expose scanned Documents safely in Files')
     executable = info.get('CFBundleExecutable', '')
     if not re.fullmatch('[A-Za-z0-9_-]+', executable) or not (app / executable).is_file():
         raise ValueError('Missing executable')
@@ -100,6 +110,7 @@ def package(app, output, source_commit):
                 raise ValueError('IPA readback hash mismatch')
     result = {'schemaVersion': 1, 'sourceCommit': source_commit, 'bundleIdentifier': info['CFBundleIdentifier'],
               'platform': 'iOS-device-arm64', 'configuration': 'Release', 'minimumOS': info.get('MinimumOSVersion'),
+              'marketingVersion': version, 'buildVersion': build, 'documentsVisibleInFilesApp': True,
               'file': ipa.name, 'bytes': ipa.stat().st_size, 'sha256': digest(ipa), 'installableAsIs': False,
               'signing': 'No Apple provisioning; requires signing with the user\'s own Apple account.',
               'physicalDeviceTested': False, 'files': records}
