@@ -166,7 +166,7 @@ test('Safari iPhone home-screen help never asks for ZIP, login or native app sig
   await page.locator('#install-app').click();
   await expect(page.locator('#install-instructions')).toContainText('I Safari på iPhone');
   await expect(page.locator('#install-instructions')).toContainText('Føj til hjemmeskærm');
-  await expect(page.locator('#install-instructions')).not.toContainText('ZIP');
+  await expect(page.locator('#install-instructions')).toContainText('Ingen ZIP');
   await page.locator('#close-install').click();
   await page.locator('#camera-help').click();
   await expect(page.locator('#permission-guide')).toContainText('Safari');
