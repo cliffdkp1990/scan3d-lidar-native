@@ -4,7 +4,8 @@
 // scanned projects, private captures or Apple information are ever accessed.
 import {createHash} from 'node:crypto';
 import {mkdir,writeFile} from 'node:fs/promises';
-import {join,dirname} from 'node:path';
+import {join,dirname,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 export const ORIGIN='https://scan3d-studio-cliff.vercel.app';
 export const AUDITED_SW_SHA='1e67705b53780b6dae90e14615fc0d76259f34f15fcdc5b31dc21678270d0278';
@@ -105,7 +106,7 @@ export async function recover({root,fetcher=fetch,expected=AUDITED_SW_SHA}) {
     JSON.stringify(receipt,null,2)+'\n',{flag:'wx'});
   return receipt;
 }
-if(import.meta.url===new URL('file://'+process.argv[1]).href) {
+if(process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1])) {
   try{
     const out=process.argv[2];
     if(!out)throw new Error('Output directory required');
