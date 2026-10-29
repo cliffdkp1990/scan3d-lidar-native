@@ -10,6 +10,7 @@ on:
       - 'tools/pwa/prepare-studio-update.mjs'
       - 'tools/pwa/studio-audit.test.mjs'
       - '.github/workflows/scan3d-studio-source-review.yml'
+      - 'web/safari-mvp/tools/studio-source-smoke.mjs'
   workflow_dispatch:
 
 permissions:
@@ -74,6 +75,23 @@ jobs:
           assert set(original_files)==set(proposed_files)-{"studio-safe-updates.js"}
           print("Verified: same original PWA assets except reviewed worker & HTML+helper; no deployment")
           PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+          run_install: false
+      - name: Install locked WebKit smoke-test dependencies
+        working-directory: web/safari-mvp
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec playwright install --with-deps webkit
+      - name: Test real Studio candidate at iPhone size, offline and with safe local data
+        working-directory: web/safari-mvp
+        env:
+          STUDIO_PREVIEW_SRC: ${{ runner.temp }}/scan3d-studio-proposal/src
+        run: |
+          set -euo pipefail
+          node tools/studio-source-smoke.mjs
       - name: Store source snapshot and offline proposal for independent review
         if: success()
         uses: actions/upload-artifact@v4
