@@ -15,6 +15,8 @@ export function safeAssetPath(raw){
     raw.includes('?')||raw.includes('#')||raw.includes('//')||
     /(^|\/)\.\.?(\/|$)/.test(raw.slice(2)))throw new Error('Unsafe static asset path');
   const relative=raw.slice(2);
+  if(relative==='api'||relative.startsWith('api/')||relative.startsWith('private/'))
+    throw new Error('Private API paths are not public static resources');
   if(relative && (!/^[a-zA-Z0-9._/-]+$/.test(relative) ||
                   relative.split('/').some(p=>p==='.'||p==='..'||!p)))
     throw new Error('Invalid static asset path');
