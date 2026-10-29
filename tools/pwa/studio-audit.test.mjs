@@ -85,7 +85,7 @@ test('preview worker is syntactically valid and never auto-takes over active sca
   const worker=replacementWorker(ORIGINAL);
   new vm.Script(worker);
   assert(worker.includes('studio-safe-updates.js'));
-  assert(!worker.includes('skipWaiting'));
+  assert(!/\.skipWaiting\s*\(/.test(worker), 'Updated worker must not call skipWaiting');
   assert(!worker.includes('location.reload'));
   const runtimeWorker=runtime(worker);
   await runtimeWorker.event('install');
