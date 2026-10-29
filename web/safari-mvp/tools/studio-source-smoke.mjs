@@ -41,8 +41,8 @@ try{
    return {scope:ready.scope,active:!!ready.active};
  });
  assert(registration.active,'PWA must have an active offline worker');
- const caches=await page.evaluate('async()=>await caches.keys()');
- assert(caches.includes('scan3d-atelier-v17-safe-reopen'),
+ const storedCaches=await page.evaluate(async()=>await window.caches.keys());
+ assert(storedCaches.includes('scan3d-atelier-v17-safe-reopen'),
    'Expected safe versioned offline shell not active');
  // Never write into the real app's IndexedDB store. Synthetic isolated fixture.
  await page.evaluate(async()=>{
