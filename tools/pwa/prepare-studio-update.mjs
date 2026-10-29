@@ -13,7 +13,7 @@ export function replacementWorker(original) {
   const assets=staticAssets(original);
   if(assets.includes('studio-safe-updates.js'))
     throw new Error('Update module already present');
-  const allowlist="const ASSETS="+match[1].replace(/\];$/,",'./studio-safe-updates.js'];");
+  const allowlist="const ASSETS="+match[1].replace(/\]$/,",'./studio-safe-updates.js']")+";";
   return [
     '/* Scan3D Atelier v17: network-first source code; no user data writes. */',
     "const CACHE='scan3d-atelier-v17-safe-reopen';",
