@@ -21,11 +21,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      REVIEW_SHA: \${{ github.event.pull_request.head.sha || github.sha }}
+      REVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: \${{ env.REVIEW_SHA }}
+          ref: ${{ env.REVIEW_SHA }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -78,9 +78,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: scan3d-atelier-public-source-and-undeployed-proposal-\${{ env.REVIEW_SHA }}
+          name: scan3d-atelier-public-source-and-undeployed-proposal-${{ env.REVIEW_SHA }}
           path: |
-            \${{ runner.temp }}/scan3d-studio-source/
-            \${{ runner.temp }}/scan3d-studio-proposal/
+            ${{ runner.temp }}/scan3d-studio-source/
+            ${{ runner.temp }}/scan3d-studio-proposal/
           if-no-files-found: error
           retention-days: 7
