@@ -137,17 +137,17 @@ def iphone_handoff_text(source: str, digest: str) -> str:
     if not SOURCE_RE.fullmatch(source) or not SHA256_RE.fullmatch(digest):
         raise ValueError("Complete source and IPA digests are required")
     return (
-        "Scan3D iPhone: Apple-signering og enhedsgodkendelse er paakraevet.\\n"
-        "AltStore Classic -> My Apps -> + -> vaelg Scan3D-unsigned.ipa.\\n"
-        "Remote AltServer kraever Wi-Fi (ikke 5G/mobildata) OG tilsluttet LocalDevVPN.\\n"
-        "Ved 'couldn't reach remote AltServer': tjek Wi-Fi + LocalDevVPN, og genstart evt. telefonen.\\n"
-        "Ved ugyldigt svar eller utilgaengelig server: AltStore Settings -> Remote AltServer -> Choose Server.\\n"
-        "Gentag ikke Apple-login, hvis fejlen kun handler om serverforbindelsen.\\n"
-        "Del aldrig Apple-adgangskoder i ChatGPT eller i en fejlrapport.\\n"
-        "Ingen usigneret IPA kan installeres direkte fra Filer.\\n"
-        "Efter installation: Scan3D -> Test min LiDAR; test gem og genaabn projekt.\\n"
-        f"Godkendt kilde: {source}\\n"
-        f"IPA SHA-256: {digest}\\n"
+        "Scan3D iPhone: Apple-signering og enhedsgodkendelse er paakraevet.\n"
+        "AltStore Classic -> My Apps -> + -> vaelg Scan3D-unsigned.ipa.\n"
+        "Remote AltServer kraever Wi-Fi (ikke 5G/mobildata) OG tilsluttet LocalDevVPN.\n"
+        "Ved 'couldn't reach remote AltServer': tjek Wi-Fi + LocalDevVPN, og genstart evt. telefonen.\n"
+        "Ved ugyldigt svar eller utilgaengelig server: AltStore Settings -> Remote AltServer -> Choose Server.\n"
+        "Gentag ikke Apple-login, hvis fejlen kun handler om serverforbindelsen.\n"
+        "Del aldrig Apple-adgangskoder i ChatGPT eller i en fejlrapport.\n"
+        "Ingen usigneret IPA kan installeres direkte fra Filer.\n"
+        "Efter installation: Scan3D -> Test min LiDAR; test gem og genaabn projekt.\n"
+        f"Godkendt kilde: {source}\n"
+        f"IPA SHA-256: {digest}\n"
     )
 
 
