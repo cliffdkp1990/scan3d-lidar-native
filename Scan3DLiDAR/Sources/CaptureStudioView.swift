@@ -159,7 +159,7 @@ struct CaptureStudioView: View {
     private var guidance:some View {
         VStack(alignment:.leading,spacing:7) {
             HStack {
-                Text(engine.savingPhoto ? "GEMMER OPTAGELSEN" : engine.missionReady ? "KLAR TIL FOTO" : engine.missionTargetLocked ? "FØLG DEN NÆSTE VINKEL" : "VÆLG DIN GENSTAND")
+                Text(engine.cameraIssue != nil ? "KAMERA KRÆVER HANDLING" : !engine.running ? "KAMERA PÅ PAUSE" : engine.savingPhoto ? "GEMMER OPTAGELSEN" : engine.missionReady ? "KLAR TIL FOTO" : engine.missionTargetLocked ? "FØLG DEN NÆSTE VINKEL" : "VÆLG DIN GENSTAND")
                     .font(.caption.weight(.heavy)).tracking(1).foregroundStyle(engine.missionReady ? Studio.mint : Studio.muted)
                 Spacer()
                 if engine.videoState == .recording { Label("VIDEO",systemImage:"record.circle.fill").font(.caption.bold()).foregroundStyle(.red) }
@@ -214,12 +214,18 @@ struct CaptureStudioView: View {
                     .font(.footnote).foregroundStyle(Studio.muted).multilineTextAlignment(.center)
                 Text(engine.videoMessage).font(.caption).foregroundStyle(Studio.muted).multilineTextAlignment(.center)
                 HStack {
-                    Button(engine.running ? "Pause scanning" : "Fortsæt scanning") {
+                    Button(engine.running ? "Pause kamera" : "Genstart kamera") {
                         if engine.running { engine.stop() } else if let session=engine.session { engine.start(using:session) }
                     }.disabled(engine.savingPhoto || engine.videoState == .preparing || engine.videoState == .finishing || engine.isStudioFixture)
                     Spacer()
                     Button("Nyt mål",action:onNewTarget).disabled(engine.savingPhoto || engine.videoBusy || engine.isStudioFixture)
                 }.font(.subheadline.weight(.semibold)).buttonStyle(.bordered)
+                if !engine.running {
+                    Text("Kameraet starter i et nyt 3D-koordinatsystem. Lås genstanden igen. Allerede gemte fotos og punktskyer bevares i Mine scanninger.")
+                        .font(.footnote).foregroundStyle(Studio.muted)
+                        .fixedSize(horizontal:false,vertical:true)
+                        .accessibilityIdentifier("camera-restart-guidance")
+                }
             }
             if engine.retakeSlotIndex != nil { Button("Annuller genfoto") { engine.cancelRetake() }.buttonStyle(.bordered) }
         }
