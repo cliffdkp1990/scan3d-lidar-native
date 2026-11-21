@@ -1,5 +1,15 @@
 # Scan3D - én klik til installationsklargøring
 
+## BETA-VEJEN — opdateret 21. november 2026
+
+**Fortrinsvis iPhone/GitHub-appen:** Åbn `scan3d-lidar-native` → **Actions** og find det seneste **grønne** workflow `Scan3D - source tests and iOS Simulator build` for den **aktuelle main-SHA**. Åbn artefaktet `scan3d-unsigned-iphone`, som indeholder `Scan3D-unsigned.ipa` og `SCAN3D_PACKAGE.json`. GitHub-appen kan have begrænset understøttelse af artefaktdownload; hent da selve artefaktet via en nødvendig browser/Windows-overførsel, men brug GitHub-appen til projektarbejdet. Et signeret iPhone-build er **ikke** genereret af dette artefakt.
+
+Når `.github/workflows/scan3d-auto-package-after-native.yml` først findes på `main`, kan **et nyt grønt native main-build** automatisk skabe artefaktet `scan3d-newest-green-main-unsigned`, med Windows-starter, præcis hashkontrol og IPA fra samme kildecommit. Tidligere historiske artefakter kan være udløbet. Installer-preflight tester derfor **kun offline-sikkerhed** og kræver ikke længere et gammelt IPA-arkiv, som GitHub ikke længere leverer.
+
+**Afleveringskrav for beta:** Native iOS build + tests grønne på samme SHA, ægte IPA og manifest kontrolleret, Apple-konto/provisioning gennemføres lokalt af dig, og en fysisk scanning + genåbning af gemt projekt bestås på iPhone 14 Pro Max. Intet her er endnu bevis på en installeret eller fysisk testet app.
+
+**Vigtigt:** Opret ikke nyt projekt og slet ikke den gamle scanner før du har taget backup. Ny AR-session kan nulstille aktive, endnu ikke gemte koordinater; behold de allerede lagrede originaler.
+
 **Version:** Scan3D LiDAR med indbygget "Test min LiDAR", iOS-build fra PR #23
 (`3863502b6aa9929bbe6fb204e0c71ed05e1ef0bb`).
 
