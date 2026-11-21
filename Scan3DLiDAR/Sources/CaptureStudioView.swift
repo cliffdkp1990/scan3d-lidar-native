@@ -36,6 +36,7 @@ struct CaptureStudioView: View {
                         .background(Studio.panel,in:RoundedRectangle(cornerRadius:18))
                 }
                 if engine.cameraAvailable {
+                    surfaceModePicker
                     let contentWidth=max(1,size.width-32)
                     let wide=size.width > size.height && contentWidth >= 650 && !typeSize.isAccessibilitySize
                     let layout=wide ? AnyLayout(HStackLayout(alignment:.top,spacing:20)) : AnyLayout(VStackLayout(spacing:20))
@@ -78,12 +79,32 @@ struct CaptureStudioView: View {
         }
     }
 
+    private var surfaceModePicker: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Picker("3D-visning", selection: $engine.surfaceMode) {
+                ForEach(SurfaceVisualizationMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("studio-surface-mode")
+            if engine.surfaceMode == .wireframe {
+                Text("Diagnosevisning · ARKit-trådnet er ikke den naturlige overflade.")
+                    .font(.caption).foregroundStyle(Studio.muted)
+            }
+        }
+        .padding(.horizontal, 2)
+    }
+
     private var cameraStage:some View {
         GeometryReader { cameraSize in
             ZStack {
                 if engine.isStudioFixture {
                     StudioFixtureBackdrop()
                 } else { LiDARCameraView(engine:engine) }
+                if engine.surfaceMode == .surfaces && !engine.isStudioFixture {
+                    SurfacePreviewOverlay(preview: engine.surfacePreview)
+                }
                 LinearGradient(colors:[.black.opacity(0.5),.clear,.clear,.black.opacity(0.6)],startPoint:.top,endPoint:.bottom)
                     .allowsHitTesting(false)
                 focusOverlay(size:cameraSize.size)
@@ -169,6 +190,12 @@ struct CaptureStudioView: View {
                 .accessibilityIdentifier("capture-guidance")
             if engine.missionTargetLocked {
                 Text(engine.missionNavigation).font(.subheadline).foregroundStyle(Studio.muted).fixedSize(horizontal:false,vertical:true)
+            }
+            if engine.surfaceMode == .surfaces {
+                Text(engine.surfacePreview.isEmpty
+                    ? "Flader vises, når målet er låst og ARKit har registreret mesh."
+                    : "Grøn toning viser registrerede fladers retning. Kanter er vejledende, ikke præcisionsmål.")
+                    .font(.caption).foregroundStyle(Studio.muted).fixedSize(horizontal:false,vertical:true)
             }
         }.frame(maxWidth:.infinity,alignment:.leading)
     }
@@ -282,7 +309,7 @@ struct CaptureStudioView: View {
                 Toggle("Automatisk foto",isOn:$engine.automaticPhotos)
                 Toggle("Start video automatisk",isOn:$engine.automaticVideo)
                 Toggle("Højopløsningsfoto",isOn:$engine.preferHighResolution).disabled(!engine.highResolutionSupported || engine.savingPhoto)
-                Toggle("Vis LiDAR-mesh i kameraet",isOn:$engine.showWireframe)
+                Text("Vælg Naturlig, Flader eller diagnostisk Trådnet over kameraet. Flader viser kun observeret ARKit-geometri og ændrer ikke gemte scanninger.").font(.footnote).foregroundStyle(Studio.muted)
                 Toggle("Motivforslag",isOn:$engine.analyzeSubject)
                 if engine.analyzeSubject { Text(engine.subjectText).font(.footnote).foregroundStyle(Studio.muted) }
                 Text("Kamerastream: \(engine.liveResolution). Fotoopløsning vælges af ARKit og registreres ved lagring. Video er fortsat 1280 px / 15 billeder pr. sekund uden lyd.")
