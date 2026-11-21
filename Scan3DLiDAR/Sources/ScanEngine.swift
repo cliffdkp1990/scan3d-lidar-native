@@ -25,7 +25,10 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
     @Published var exportedMeshURL: URL?
     @Published var exportedTriangleCount = 0
     @Published var exportMessage = "Tag billeder fra flere vinkler for at opbygge en LiDAR-punktsky."
-    @Published var showWireframe = false
+    @Published var surfaceMode: SurfaceVisualizationMode = .natural
+    @Published private(set) var surfacePreview: SurfacePreviewFrame = .empty
+    var showWireframe: Bool { surfaceMode == .wireframe }
+    private var lastSurfacePreviewTime: TimeInterval = -1
     @Published private(set) var photoCondition: PhotoCondition = .unavailable
     @Published private(set) var depthSupport = "Venter på dybde"
     @Published private(set) var liveResolution = "—"
@@ -292,6 +295,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         invalidateQuality()
         stopVideo(reason: "cameraPaused")
         session?.pause()
+        surfacePreview = .empty
+        lastSurfacePreviewTime = -1
         self.running = false
         self.trackingText = "Sat på pause"
         self.missionReady = false
@@ -337,6 +342,8 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         lastPhotoURL = nil
         targetPoint = nil
         cloud.clear()
+        surfacePreview = .empty
+        lastSurfacePreviewTime = -1
         depthPointsBySlot.removeAll()
         lidarPointCount = 0
         exportedCloudURL = nil
@@ -647,6 +654,25 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         if targetOutsideView != outside { targetOutsideView=outside }
     }
 
+    /// Live visual guidance only. Original photos, videos and PLY/OBJ remain untouched.
+    private func updateSurfacePreview(for frame: ARFrame) {
+        let thermal = ProcessInfo.processInfo.thermalState
+        guard surfaceMode == .surfaces, missionTargetLocked,
+              !captureSuspended, trackingNormal,
+              thermal != .serious && thermal != .critical,
+              let targetPoint, viewportSize.width > 0, viewportSize.height > 0 else {
+            if !surfacePreview.isEmpty { surfacePreview = .empty }
+            lastSurfacePreviewTime = -1
+            return
+        }
+        // Limit UI updates / mesh projection to approximately 3 Hz on a physical iPhone.
+        guard lastSurfacePreviewTime < 0 || frame.timestamp - lastSurfacePreviewTime >= 0.32 else { return }
+        lastSurfacePreviewTime = frame.timestamp
+        surfacePreview = SurfacePreviewProjector.project(
+            frame: frame, viewport: viewportSize, orientation: interfaceOrientation,
+            target: SIMD3<Float>(Float(targetPoint.x), Float(targetPoint.y), Float(targetPoint.z)))
+    }
+
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         guard Self.supportsLiDAR, running, self.session === session else { return }
         lastPhysicalFrameAt = Date()
@@ -662,6 +688,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
         let normal:Bool
         if case .normal=frame.camera.trackingState { normal=true } else { normal=false }
         if trackingNormal != normal { trackingNormal=normal }
+        updateSurfacePreview(for: frame)
         let adjusting=ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera?.isAdjustingFocus ?? false
         if focusAdjusting != adjusting { focusAdjusting=adjusting }
         let depth=estimate?.meters
