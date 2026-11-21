@@ -1,0 +1,48 @@
+name: Scan3D - one-click installer safety tests
+
+# Tests the Windows preparation only. No Apple installation, signing or login.
+on:
+  pull_request:
+    paths:
+      - 'tools/installer/**'
+      - '.github/workflows/scan3d-install-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  windows-installer:
+    name: Windows installer offline safety tests (not signed app)
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run read-only package and digest gate tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tools/installer/Test-Scan3D.ps1
+      - name: Test SHA-bound automatic installer packager
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s tools/installer -p 'test_*.py' -v
+      - name: Assert install helper does not need Apple credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $text = Get-Content ./tools/installer/Start-Scan3D.ps1 -Raw
+          foreach ($forbidden in @('APP_SPECIFIC_PASSWORD','APPLE_ID_PASSWORD','CERTIFICATE_PASSWORD','appleidpassword')) {
+            if ($text.Contains($forbidden)) { throw 'Forbidden credential handling in helper' }
+          }
+          Write-Output 'No credential storage variables in installer script.'
+
+# A preflight PR only proves that installer scripts behave safely. Do not
+# download a historical artifact that may have expired: an unavailable IPA
+# must not turn a successful safety check into a false code regression.
+# The workflow_run job in scan3d-auto-package-after-native.yml performs the
+# real SHA-bound artifact retrieval only for a green current main native build.
