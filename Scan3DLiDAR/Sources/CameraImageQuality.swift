@@ -27,9 +27,18 @@ enum CameraImageQuality {
     }
 }
 
+/// Align the target distance and its point cloud to one validated ARKit map.
+/// Both buffers must have matching dimensions and pass confidence/center checks.
 enum LiDARFrameQuality {
+    static func selected(_ frame: ARFrame) -> DepthBufferSampler.Selected? {
+        let smoothed=frame.smoothedSceneDepth
+        let raw=frame.sceneDepth
+        return DepthBufferSampler.selected(
+            smoothedDepth:smoothed?.depthMap,smoothedConfidence:smoothed?.confidenceMap,
+            rawDepth:raw?.depthMap,rawConfidence:raw?.confidenceMap)
+    }
+
     static func center(_ frame: ARFrame) -> DepthEstimate? {
-        guard let data=frame.smoothedSceneDepth ?? frame.sceneDepth, let confidence=data.confidenceMap else { return nil }
-        return DepthBufferSampler.center(depth:data.depthMap,confidence:confidence)
+        selected(frame)?.center
     }
 }

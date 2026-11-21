@@ -66,7 +66,7 @@ jobs:
           "$RUNNER_TEMP/export-tests"
           swiftc Sources/GeometryExport.swift Sources/GeometryPreview.swift Tests/geometry-preview/main.swift -o "$RUNNER_TEMP/geometry-preview-tests"
           "$RUNNER_TEMP/geometry-preview-tests"
-          swiftc Sources/GeometryExport.swift Sources/GeometryPreview.swift Sources/MissionGeometry.swift Sources/CaptureQuality.swift Sources/LumaBufferSampler.swift Sources/DepthBufferSampler.swift Tests/quality/main.swift -o "$RUNNER_TEMP/capture-quality-tests"
+          swiftc Sources/GeometryExport.swift Sources/GeometryPreview.swift Sources/MissionGeometry.swift Sources/CaptureQuality.swift Sources/LumaBufferSampler.swift Sources/DepthBufferSampler.swift Sources/LiDARDepthFallbackPolicy.swift Tests/quality/main.swift -o "$RUNNER_TEMP/capture-quality-tests"
           "$RUNNER_TEMP/capture-quality-tests"
           swiftc Sources/AutomaticCapture.swift Tests/automatic/main.swift -o "$RUNNER_TEMP/automatic-tests"
           "$RUNNER_TEMP/automatic-tests"
