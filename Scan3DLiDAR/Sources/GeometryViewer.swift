@@ -56,7 +56,8 @@ struct StoredGeometryViewer: View {
                     #endif
                     ZStack {
                         GeometryViewport(prepared: prepared, camera: $camera, lightBackground: lightBackground,
-                            onFailure: { renderFailure = $0 }).accessibilityHidden(true)
+                            onFailure: { renderFailure = $0 },
+                            onCameraChange: { camera = $0 }).accessibilityHidden(true)
                     }
                         .frame(height: 340)
                         .accessibilityElement(children:.ignore)
@@ -248,6 +249,9 @@ private struct GeometryViewport: UIViewRepresentable {
     @Binding var camera: GeometryCamera
     let lightBackground: Bool
     let onFailure: (String) -> Void
+    /// Keep UIKit gesture-driven camera changes in the SwiftUI state owner, too.
+    /// This keeps the renderer and VoiceOver's viewport value synchronized.
+    let onCameraChange: (GeometryCamera) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> GeometryRenderView {
@@ -293,13 +297,20 @@ private struct GeometryViewport: UIViewRepresentable {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
             let delta = gesture.consumeDelta()
             geometryTrace("orbit state=\(gesture.state.rawValue) delta=\(delta)")
-            owner.camera.rotate(horizontal: -Float(delta.x)*0.008, vertical: Float(delta.y)*0.008)
-            updateRenderer()
+            var next = owner.camera
+            next.rotate(horizontal: -Float(delta.x)*0.008, vertical: Float(delta.y)*0.008)
+            renderer?.camera = next
+            surface?.renderer.setNeedsDisplay()
+            owner.onCameraChange(next)
         }
         @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
             guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
-            owner.camera.zoom(by: Float(gesture.scale)); gesture.scale = 1
-            updateRenderer()
+            var next = owner.camera
+            next.zoom(by: Float(gesture.scale)); gesture.scale = 1
+            gesture.scale = 1
+            renderer?.camera = next
+            surface?.renderer.setNeedsDisplay()
+            owner.onCameraChange(next)
         }
     }
 }
