@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - 'Scan3DLiDAR/**'
+      - 'tools/installer/**' # Installer-only PRs must run the protected required native check.
       - '.github/workflows/scan3d-lidar.yml'
   workflow_dispatch:
 permissions:

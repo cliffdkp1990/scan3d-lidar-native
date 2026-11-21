@@ -132,6 +132,25 @@ def verified_payload(artifact: bytes, expected_sha: str) -> tuple[dict, bytes]:
     return manifest, ipa
 
 
+def iphone_handoff_text(source: str, digest: str) -> str:
+    """Short, on-device AltStore Classic instructions bound to a verified IPA."""
+    if not SOURCE_RE.fullmatch(source) or not SHA256_RE.fullmatch(digest):
+        raise ValueError("Complete source and IPA digests are required")
+    return (
+        "Scan3D iPhone: Apple-signering og enhedsgodkendelse er paakraevet.\n"
+        "AltStore Classic -> My Apps -> + -> vaelg Scan3D-unsigned.ipa.\n"
+        "Remote AltServer kraever Wi-Fi (ikke 5G/mobildata) OG tilsluttet LocalDevVPN.\n"
+        "Ved 'couldn't reach remote AltServer': tjek Wi-Fi + LocalDevVPN, og genstart evt. telefonen.\n"
+        "Ved ugyldigt svar eller utilgaengelig server: AltStore Settings -> Remote AltServer -> Choose Server.\n"
+        "Gentag ikke Apple-login, hvis fejlen kun handler om serverforbindelsen.\n"
+        "Del aldrig Apple-adgangskoder i ChatGPT eller i en fejlrapport.\n"
+        "Ingen usigneret IPA kan installeres direkte fra Filer.\n"
+        "Efter installation: Scan3D -> Test min LiDAR; test gem og genaabn projekt.\n"
+        f"Godkendt kilde: {source}\n"
+        f"IPA SHA-256: {digest}\n"
+    )
+
+
 def artifact_bytes(artifact: pathlib.Path) -> bytes:
     if artifact.is_dir():
         # actions/download-artifact extracts exactly these two files.
@@ -171,16 +190,7 @@ def build(artifact: pathlib.Path, installer_dir: pathlib.Path,
     assets["Scan3D-unsigned.ipa"] = ipa
     assets["SCAN3D_PACKAGE.json"] = (
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    assets["START_HER_iPHONE.txt"] = (
-        "Scan3D iPhone: signering kraever din Apple-konto og egen godkendelse.\n"
-        "Aabn AltStore Classic -> My Apps -> + -> Scan3D-unsigned.ipa.\n"
-        "Er Classic ikke installeret: https://altstore.io/download\n"
-        "Indstillinger -> Set up Remote AltServer (Wi-Fi og evt. VPN).\n"
-        "En usigneret IPA kan ikke installeres fra Filer alene.\n"
-        "Efter installation: Aabn Scan3D -> Test min LiDAR.\n"
-        f"Verificeret kilde: {expected_sha}\n"
-        f"IPA SHA-256: {manifest['sha256']}\n"
-    ).encode("utf-8")
+    assets["START_HER_iPHONE.txt"] = iphone_handoff_text(expected_sha, manifest["sha256"]).encode("utf-8")
     if output.exists():
         raise FileExistsError("Never silently overwrite an installation package")
     output.parent.mkdir(parents=True, exist_ok=True)
