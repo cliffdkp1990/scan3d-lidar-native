@@ -168,4 +168,56 @@ let invalidROI=PointCollector()
 check(sampleDepth(invalidROI,target:CloudVertex(x:.nan,y:0,z:0))==0,"invalid ROI cannot bypass the spatial filter")
 invalidROI.add(CloudVertex(x:0,y:0,z:0),target:nil,radius:.nan)
 check(invalidROI.count==0,"invalid ROI radius cannot disable bounded sampling")
+
+// Regression: an available but corrupt/low-confidence smoothed map must not
+// suppress a good raw ARKit map. Test with actual *separately allocated*
+// CoreVideo buffers, not synthetic bool flags alone.
+let rawDepthMap=try scalarBuffer(kCVPixelFormatType_DepthFloat32)
+let rawConfidenceMap=try scalarBuffer(kCVPixelFormatType_OneComponent8)
+setDepth(depthMap) { _,_ in .nan };setConfidence(confidenceMap,2)
+setDepth(rawDepthMap) { _,_ in 0.8 };setConfidence(rawConfidenceMap,2)
+func selectedDepth() -> DepthBufferSampler.Selected? {
+    DepthBufferSampler.selected(
+        smoothedDepth:depthMap,smoothedConfidence:confidenceMap,
+        rawDepth:rawDepthMap,rawConfidence:rawConfidenceMap)
+}
+let rescued=selectedDepth()
+check(rescued?.origin == .sceneDepth && abs((rescued?.center.meters ?? 0)-0.8)<0.0001,
+      "real raw depth recovers when present smoothed depth is NaN")
+let rescuedCloud=PointCollector()
+if let source=rescued {
+    let n=DepthBufferSampler.sample(depth:source.depth,confidence:source.confidence,
+        intrinsics:calibration,imageSize:imageSize,transform:matrix_identity_float4x4,
+        into:rescuedCloud,target:nil)
+    check(n==9 && rescuedCloud.snapshot().allSatisfy { abs($0.z+0.8)<0.0001 },
+          "real sampled points use the identical raw source as center distance")
+} else { check(false,"raw rescue must supply concrete buffers") }
+setDepth(depthMap) { _,_ in 1 }
+let smoothed=selectedDepth()
+check(smoothed?.origin == .smoothedSceneDepth && smoothed?.center.meters == 1,
+      "verified smoothed source still wins when both maps are valid")
+if let source=smoothed {
+    let cloud=PointCollector()
+    let n=DepthBufferSampler.sample(depth:source.depth,confidence:source.confidence,
+        intrinsics:calibration,imageSize:imageSize,transform:matrix_identity_float4x4,
+        into:cloud,target:nil)
+    check(n==9 && cloud.snapshot().allSatisfy { abs($0.z+1)<0.0001 },
+          "smoothed center and point-cloud geometry match exactly")
+} else { check(false,"valid smoothed source must supply concrete buffers") }
+setConfidence(confidenceMap,0)
+check(selectedDepth()?.origin == .sceneDepth,"low-confidence smoothed data falls back to measured raw")
+setConfidence(rawConfidenceMap,0)
+check(selectedDepth()==nil,"both low-confidence sources fail closed")
+setConfidence(rawConfidenceMap,255)
+check(selectedDepth()==nil,"unknown raw confidence levels never approve a scan")
+setDepth(rawDepthMap) { _,_ in 0.8 };setConfidence(rawConfidenceMap,2)
+check(DepthBufferSampler.selected(smoothedDepth:depthMap,smoothedConfidence:nil,
+    rawDepth:rawDepthMap,rawConfidence:rawConfidenceMap)?.origin == .sceneDepth,
+    "missing smoothed confidence does not hide good raw data")
+check(DepthBufferSampler.selected(smoothedDepth:nil,smoothedConfidence:nil,
+    rawDepth:nil,rawConfidence:nil)==nil,"missing both sensor maps never creates a target")
+check(DepthBufferSampler.selected(smoothedDepth:depthMap,smoothedConfidence:confidenceMap,
+    rawDepth:rawDepthMap,rawConfidence:mismatch)?.origin == nil,
+    "smoothed and raw invalid/mismatched dimensions cannot be silently mixed")
+
 print("PASS \(count)/\(count) image planes, actual depth buffers, camera calibration, metric exports, capture quality and lifecycle")
