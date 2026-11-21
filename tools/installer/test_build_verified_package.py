@@ -37,6 +37,17 @@ class PinnedBuildTests(unittest.TestCase):
         self.assertEqual(result.count(SHA), 1)
         self.assertEqual(result.count(HASH), 1)
 
+    def test_iphone_handoff_requires_wifi_and_localdevvpn(self):
+        guide = module.iphone_handoff_text(SHA, HASH)
+        self.assertIn("Wi-Fi", guide)
+        self.assertIn("LocalDevVPN", guide)
+        self.assertIn("Choose Server", guide)
+        self.assertIn("Gentag ikke Apple-login", guide)
+        self.assertIn(SHA, guide)
+        self.assertIn(HASH, guide)
+        with self.assertRaises(ValueError):
+            module.iphone_handoff_text("short", HASH)
+
     def test_duplicate_or_missing_pin_rejected(self):
         good = "$Scan3DCommit = '" + SHA + "'\n$Scan3DSHA256 = '" + HASH + "'\n"
         for candidate in ("", good + good,
