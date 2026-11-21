@@ -1,0 +1,104 @@
+name: Scan3D Studio - recover public source and verify safe PWA update
+
+# Read-only public requests only. The generated patch is NOT deployed.
+# Does not touch Apple's signing, Vercel settings, protected main, or
+# any iPhone IndexedDB, project photos, exported models or personal data.
+on:
+  pull_request:
+    paths:
+      - 'tools/pwa/recover-public-atelier.mjs'
+      - 'tools/pwa/prepare-studio-update.mjs'
+      - 'tools/pwa/studio-audit.test.mjs'
+      - '.github/workflows/scan3d-studio-source-review.yml'
+      - 'web/safari-mvp/tools/studio-source-smoke.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-review:
+    name: Recover exactly audited public Studio assets, prepare offline patch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      REVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REVIEW_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test exact source checkout and prevent unreviewed native code changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEW_SHA"
+          node --test tools/pwa/studio-audit.test.mjs
+      - name: Read publicly exposed live Studio source, fixed origin and SW SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/pwa/recover-public-atelier.mjs \
+            "$RUNNER_TEMP/scan3d-studio-source"
+      - name: Prepare separate offline candidate with unchanged manifest identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/pwa/prepare-studio-update.mjs \
+            "$RUNNER_TEMP/scan3d-studio-source" "$RUNNER_TEMP/scan3d-studio-proposal"
+          node --check "$RUNNER_TEMP/scan3d-studio-proposal/src/sw.js"
+          node --check "$RUNNER_TEMP/scan3d-studio-proposal/src/studio-safe-updates.js"
+      - name: Verify patched source is byte-identical except four stated changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,pathlib
+          base=pathlib.Path(os.environ["RUNNER_TEMP"])
+          original=base/"scan3d-studio-source"
+          proposed=base/"scan3d-studio-proposal"
+          metadata=json.loads((proposed/"SAFE_UPDATE_RECEIPT.json").read_text())
+          expected={"sw.js","studio.html","index.html","studio-safe-updates.js"}
+          assert set(metadata["changedNames"])==expected
+          assert metadata["originalManifestSHA256"]==metadata["proposedManifestSHA256"]
+          assert metadata["deployed"] is False and metadata["installedOnPhone"] is False
+          original_files={p.relative_to(original/"src").as_posix():p.read_bytes()
+              for p in (original/"src").rglob("*") if p.is_file()}
+          proposed_files={p.relative_to(proposed/"src").as_posix():p.read_bytes()
+              for p in (proposed/"src").rglob("*") if p.is_file()}
+          assert set(proposed_files)-set(original_files)=={"studio-safe-updates.js"}
+          for name,blob in original_files.items():
+              if name not in expected:assert proposed_files[name]==blob,name
+          assert set(original_files)==set(proposed_files)-{"studio-safe-updates.js"}
+          print("Verified: same original PWA assets except reviewed worker & HTML+helper; no deployment")
+          PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+          run_install: false
+      - name: Install locked WebKit smoke-test dependencies
+        working-directory: web/safari-mvp
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec playwright install --with-deps webkit
+      - name: Test real Studio candidate at iPhone size, offline and with safe local data
+        working-directory: web/safari-mvp
+        env:
+          STUDIO_PREVIEW_SRC: ${{ runner.temp }}/scan3d-studio-proposal/src
+        run: |
+          set -euo pipefail
+          node tools/studio-source-smoke.mjs
+      - name: Store source snapshot and offline proposal for independent review
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan3d-atelier-public-source-and-undeployed-proposal-${{ env.REVIEW_SHA }}
+          path: |
+            ${{ runner.temp }}/scan3d-studio-source/
+            ${{ runner.temp }}/scan3d-studio-proposal/
+          if-no-files-found: error
+          retention-days: 7
