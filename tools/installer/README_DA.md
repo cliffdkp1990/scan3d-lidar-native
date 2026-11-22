@@ -25,6 +25,17 @@ Dette er en **automatiseret klargøring til personlig installation**, ikke en Ap
 
 **Begrænsning:** iOS Genveje, Safari, Google Drive eller Windows kan ikke springe Apples provisioning, første parring eller brugerens tilladelser over. En direkte `altstore-classic://install` med en privat Drive-URL er ikke verificeret; vi bruger derfor den understøttede filimport frem for at påstå et ubekræftet 1-kliks-sideload.
 
+## Hvis Remote AltServer ikke kan forbindes (iPhone uden PC)
+
+1. Brug **Wi-Fi**, ikke mobildata/5G. Remote AltServer kræver ikke samme lokale Wi-Fi som din Windows-PC.
+2. Åbn **LocalDevVPN** og kontrollér, at den faktisk viser tilsluttet. Det er et **krav**, ikke et valgfrit ekstra trin til Remote AltServer.
+3. Ved **"AltStore couldn't reach remote AltServer"**: kontrollér Wi-Fi + LocalDevVPN; genstart eventuelt iPhone én gang og prøv igen.
+4. Ved **"invalid response"** eller **"server unavailable"**: **AltStore Classic → Settings → Remote AltServer → Choose Server**, vælg en anden server eller vent til serveren er tilgængelig.
+5. Hvis fejlen er **forbindelsen**, skal du **ikke gentage Apple-login/2FA**. Del ikke dine Apple-adgangskoder eller andre hemmeligheder med ChatGPT.
+6. Først når Remote AltServer svarer: **My Apps → + → vælg den verificerede IPA**. Installeret app og fysisk LiDAR-test må ikke markeres som bestået før de er prøvet på telefonen.
+
+Kilde: [AltStores officielle Remote AltServer-vejledning](https://github.com/altstoreio/FAQ/blob/main/altstore-classic/remote-altservers.md).
+
 ## Én klik med Windows som hjælper
 
 Den komplette leverings-ZIP indeholder disse filer i **samme mappe**:
