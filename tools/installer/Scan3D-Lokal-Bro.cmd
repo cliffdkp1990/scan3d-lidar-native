@@ -17,7 +17,7 @@ set "WSLREADY=0"
 where wsl.exe >nul 2>&1
 if errorlevel 1 goto noUbuntu
 rem Read only. Only choose known Ubuntu distributions using WSL2.
-for /f "usebackq delims=" %%D in (`powershell.exe -NoProfile -Command "$p='HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'; foreach($n in @('Ubuntu-24.04','Ubuntu','Ubuntu-22.04')) { if(@(Get-ChildItem -LiteralPath $p -ErrorAction SilentlyContinue ^| Get-ItemProperty -ErrorAction SilentlyContinue ^| Where-Object {$_.DistributionName -eq $n -and $_.Version -eq 2}).Count -gt 0){$n;break} }"`) do set "DISTRO=%%D"
+for /f "usebackq delims=" %%D in (`powershell.exe -NoProfile -Command "$p='HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'; foreach($n in @('Ubuntu-24.04','Ubuntu','Ubuntu-22.04')) { foreach($k in (Get-ChildItem -LiteralPath $p -ErrorAction SilentlyContinue)) { $v=Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue; if($v.DistributionName -eq $n -and $v.Version -eq 2){$n;exit 0} } }"`) do set "DISTRO=%%D"
 if not defined DISTRO goto noUbuntu
 set "WSLREADY=1"
 >> "%REPORT%" echo WSL2: %DISTRO%
@@ -32,7 +32,7 @@ where wsl.exe >nul 2>&1
 if errorlevel 1 goto checkUSB
 echo Microsoft WSL-installation kan kraeve administrator og genstart.
 choice /c JN /n /m "Installer Ubuntu via Microsoft WSL nu? [J/N] "
-if errorlevel 2 goto checkUSB
+if not "%ERRORLEVEL%"=="1" goto checkUSB
 wsl.exe --install -d Ubuntu
 set "INSTALLRC=%ERRORLEVEL%"
 >> "%REPORT%" echo WSL-installation exitcode: %INSTALLRC%
@@ -65,7 +65,7 @@ if not "%WSLREADY%"=="1" goto finish
 where winget.exe >nul 2>&1
 if errorlevel 1 goto finish
 choice /c JN /n /m "Installer usbipd-win via Windows Package Manager? [J/N] "
-if errorlevel 2 goto finish
+if not "%ERRORLEVEL%"=="1" goto finish
 winget.exe install --interactive --exact --id dorssel.usbipd-win --source winget
 set "USBRC=%ERRORLEVEL%"
 >> "%REPORT%" echo USBIPD installation exitcode: %USBRC%
@@ -80,7 +80,7 @@ echo Naeste trin: hent den fastlaaste Linux-version af xtool i Ubuntu.
 echo Filen kontrolleres med SHA256 inden den koeres med --help.
 echo Der bruges ingen Apple-konto, ingen sudo og ingen USB-parring.
 choice /c JN /n /m "Klargor xtool 1.24.0 nu? [J/N] "
-if errorlevel 2 goto finish
+if not "%ERRORLEVEL%"=="1" goto finish
 wsl.exe -d "%DISTRO%" --exec bash -lc "set -eu; test $(uname -m) = x86_64; command -v curl; command -v sha256sum; mkdir -p ~/.local/share/scan3d-bridge; cd ~/.local/share/scan3d-bridge; curl --fail --location --proto '=https' --max-time 180 https://github.com/xtool-org/xtool/releases/download/1.24.0/xtool-x86_64.AppImage -o xtool.AppImage.part; echo 'dbfd9d7216f077c84c171b688c4173c37c23ca76bf7fd185d1a9ae8a53dab59f  xtool.AppImage.part' | sha256sum --check --strict; mv -f xtool.AppImage.part xtool.AppImage; chmod u+x xtool.AppImage; APPIMAGE_EXTRACT_AND_RUN=1 timeout 60 ./xtool.AppImage install --help; APPIMAGE_EXTRACT_AND_RUN=1 timeout 60 ./xtool.AppImage auth --help"
 if errorlevel 1 goto stageFailed
 >> "%REPORT%" echo xtool: lokal SHA256 og CLI bestaaet
@@ -99,7 +99,7 @@ echo.
 if /i "%MODE%"=="check" exit /b 0
 echo Rapporten er gemt lokalt i midlertidig mappe.
 choice /c JN /n /m "Kopier kun den korte statusrapport til udklipsholder? [J/N] "
-if errorlevel 2 goto end
+if not "%ERRORLEVEL%"=="1" goto end
 type "%REPORT%" | clip.exe
 echo Indsaet status i ChatGPT.
 :end
