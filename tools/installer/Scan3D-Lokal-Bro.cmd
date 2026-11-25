@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
-title Scan3D - lokal installationsbro 1.0
+title Scan3D - lokal installationsbro 1.1
 set "REPORT=%TEMP%\Scan3D-bro-status.txt"
 set "MODE=interactive"
 if /i "%~1"=="--check" set "MODE=check"
-> "%REPORT%" echo Scan3D lokal bro 1.0
->> "%REPORT%" echo Ingen Apple-login, signering, sikkerhedsaendringer eller fjernstyring.
+> "%REPORT%" echo Scan3D lokal bro 1.1
+>> "%REPORT%" echo Ingen automatisk Apple-login, sikkerhedsaendring eller fjernstyring.
 echo.
 echo Scan3D - lokal installationsbro
 echo ===============================
@@ -85,6 +85,20 @@ wsl.exe -d "%DISTRO%" --exec bash -lc "set -eu; test $(uname -m) = x86_64; comma
 if errorlevel 1 goto stageFailed
 >> "%REPORT%" echo xtool: lokal SHA256 og CLI bestaaet
 echo [OK] xtool klargjort.
+if not exist "%~dp0Scan3D-Installer.sh" goto missingStage
+echo.
+echo Trin 2 kontrollerer IPA, USB-handshake og lokal Apple-signering.
+choice /c JN /n /m "Fortsat til installationsguiden nu? [J/N] "
+if not "%ERRORLEVEL%"=="1" goto finish
+wsl.exe -d "%DISTRO%" --cd "%~dp0." --exec bash ./Scan3D-Installer.sh
+set "STAGERC=%ERRORLEVEL%"
+>> "%REPORT%" echo Installationstrin exitcode: %STAGERC%
+echo Se installationsguidens resultat ovenfor. Fysisk test afventer.
+goto finish
+
+:missingStage
+echo [STOP] Scan3D-Installer.sh mangler. Udpak begge filer i samme mappe.
+>> "%REPORT%" echo Installationsguide: fil mangler
 goto finish
 
 :stageFailed
