@@ -63,6 +63,7 @@ enum LiDARSceneMesh {
             }
             if triangles.count >= 160_000 { break }
         }
-        return (GeometryExport.obj(vertices:vertices,triangles:triangles),triangles.count)
+        let result = GeometryExport.validatedOBJ(vertices:vertices,triangles:triangles)
+        return (result.data,result.triangleCount)
     }
 }
