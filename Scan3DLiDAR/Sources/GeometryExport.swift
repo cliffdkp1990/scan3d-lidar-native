@@ -64,15 +64,68 @@ enum GeometryExport {
         return Data((lines.joined(separator:"\n") + "\n").utf8)
     }
 
+    struct OBJResult {
+        let data: Data
+        let triangleCount: Int
+        let discardedTriangleCount: Int
+    }
+
+    private struct FaceKey: Hashable {
+        let a: Int
+        let b: Int
+        let c: Int
+
+        init(_ a: Int, _ b: Int, _ c: Int) {
+            let indices = [a,b,c].sorted()
+            self.a = indices[0]
+            self.b = indices[1]
+            self.c = indices[2]
+        }
+    }
+
     /// Face indices are *0-based* here. OBJ uses *1-based* vertex indices.
-    static func obj(vertices: [CloudVertex], triangles: [(Int, Int, Int)]) -> Data {
+    /// Preserve positions and winding; drop invalid vertices, invalid/zero-area
+    /// faces and duplicate indexed faces. This is not mesh repair or segmentation.
+    static func validatedOBJ(vertices: [CloudVertex], triangles: [(Int, Int, Int)]) -> OBJResult {
         var lines = ["# Scan3D Studio native LiDAR spatial mesh", "# Units: meters, ARKit session coordinates", "o lidar_capture"]
-        for v in vertices {
+        var indices = [Int](repeating: 0, count: vertices.count)
+        var nextIndex = 1
+        for (i,v) in vertices.enumerated() where v.finite {
+            indices[i] = nextIndex
+            nextIndex += 1
             lines.append("v \(v.x) \(v.y) \(v.z)")
         }
-        for (a,b,c) in triangles where a >= 0 && b >= 0 && c >= 0 && a < vertices.count && b < vertices.count && c < vertices.count {
-            lines.append("f \(a+1) \(b+1) \(c+1)")
+
+        // Double intermediates prevent overflow/underflow for finite Float inputs.
+        func hasArea(_ a: CloudVertex, _ b: CloudVertex, _ c: CloudVertex) -> Bool {
+            let ux = Double(b.x) - Double(a.x)
+            let uy = Double(b.y) - Double(a.y)
+            let uz = Double(b.z) - Double(a.z)
+            let vx = Double(c.x) - Double(a.x)
+            let vy = Double(c.y) - Double(a.y)
+            let vz = Double(c.z) - Double(a.z)
+            let x = uy*vz - uz*vy
+            let y = uz*vx - ux*vz
+            let z = ux*vy - uy*vx
+            return x != 0 || y != 0 || z != 0
         }
-        return Data((lines.joined(separator:"\n") + "\n").utf8)
+
+        var seen = Set<FaceKey>()
+        var exported = 0
+        for (a,b,c) in triangles {
+            guard vertices.indices.contains(a), vertices.indices.contains(b), vertices.indices.contains(c),
+                  a != b, b != c, a != c,
+                  indices[a] > 0, indices[b] > 0, indices[c] > 0,
+                  hasArea(vertices[a],vertices[b],vertices[c]) else { continue }
+            guard seen.insert(FaceKey(a,b,c)).inserted else { continue }
+            lines.append("f \(indices[a]) \(indices[b]) \(indices[c])")
+            exported += 1
+        }
+        return OBJResult(data: Data((lines.joined(separator:"\n") + "\n").utf8),
+            triangleCount: exported, discardedTriangleCount: triangles.count - exported)
+    }
+
+    static func obj(vertices: [CloudVertex], triangles: [(Int, Int, Int)]) -> Data {
+        validatedOBJ(vertices: vertices, triangles: triangles).data
     }
 }
