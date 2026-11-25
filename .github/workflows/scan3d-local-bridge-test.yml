@@ -1,0 +1,32 @@
+name: Scan3D local bridge read-only Windows test
+on:
+  push:
+    branches: [diagnostics/xtool-linux-preflight-20261126]
+    paths:
+      - tools/installer/Scan3D-Lokal-Bro.cmd
+      - .github/workflows/scan3d-local-bridge-test.yml
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only local bridge smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:TEMP 'Scan3D-bro-status.txt'
+          if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+          & cmd.exe /d /c 'tools\installer\Scan3D-Lokal-Bro.cmd --check'
+          if ($LASTEXITCODE -ne 0) { throw 'Bridge check failed' }
+          $report = Get-Content -LiteralPath $path -Raw
+          foreach ($required in @('Scan3D lokal bro 1.0','WSL2:','USBIPD:','Apple-signering og fysisk installation: afventer')) {
+            if (-not $report.Contains($required)) { throw "Missing status: $required" }
+          }
+          if ($report -match 'installation exitcode|xtool:') { throw 'Check-only unexpectedly attempted setup' }
+          Write-Host $report
+          Write-Host 'PASS: no install, no Apple login, no device pairing, no clipboard changes'
