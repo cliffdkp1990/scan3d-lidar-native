@@ -1,0 +1,32 @@
+name: Scan3D - isolated xtool Linux preflight
+on:
+  push:
+    branches: [diagnostics/xtool-linux-preflight-20261126]
+    paths: [.github/workflows/xtool-linux-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Download official pinned xtool AppImage and verify SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl --fail --location --proto '=https' --max-time 180 'https://github.com/xtool-org/xtool/releases/download/1.24.0/xtool-x86_64.AppImage' -o xtool.AppImage
+          printf '%s\n' 'dbfd9d7216f077c84c171b688c4173c37c23ca76bf7fd185d1a9ae8a53dab59f  xtool.AppImage' | sha256sum --check --strict
+          file xtool.AppImage
+          chmod u+x xtool.AppImage
+      - name: Verify CLI runtime without Apple login or device access
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export HOME="$(mktemp -d)"
+          timeout 60 ./xtool.AppImage --help
+          timeout 60 ./xtool.AppImage install --help
+          timeout 60 ./xtool.AppImage auth --help
+          echo 'CLI smoke test only. No authentication, certificate changes, signing, device pairing, WSL or physical USB test performed.'
