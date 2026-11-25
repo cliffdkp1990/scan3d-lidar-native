@@ -48,6 +48,12 @@ class PinnedBuildTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.iphone_handoff_text("short", HASH)
 
+    def test_windows_launcher_has_explicit_folder_and_no_auto_install(self):
+        text = script.with_name("Start-Scan3D.cmd").read_text(encoding="utf-8")
+        self.assertIn('-PackageFolder "%~dp0."', text)
+        self.assertNotIn("-InstallAltServer", text)
+        self.assertIn("IKKE automatisk installeret", text)
+
     def test_duplicate_or_missing_pin_rejected(self):
         good = "$Scan3DCommit = '" + SHA + "'\n$Scan3DSHA256 = '" + HASH + "'\n"
         for candidate in ("", good + good,

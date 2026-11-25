@@ -178,7 +178,7 @@ def build(artifact: pathlib.Path, installer_dir: pathlib.Path,
     assets = {name: (folder / name).read_bytes() for name in required_files}
     template = assets["Start-Scan3D.ps1"].decode("utf-8")
     assets["Start-Scan3D.ps1"] = pinned_script(
-        template, expected_sha, manifest["sha256"]).encode("utf-8")
+        template, expected_sha, manifest["sha256"]).encode("utf-8-sig")
     # The included human guide originally described PR23. Update immutable pins
     # in generated bundles so a newer main build is never advertised as PR23.
     guide = assets["README_DA.md"].decode("utf-8")

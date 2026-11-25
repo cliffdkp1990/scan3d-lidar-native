@@ -4,7 +4,7 @@ param(
     [switch]$InstallAltServer,
     [switch]$SkipOpen,
     [switch]$LibraryOnly,
-    [string]$PackageFolder = $PSScriptRoot
+    [string]$PackageFolder
 )
 
 # One-click Windows *preparation*, not a signature bypass.
@@ -16,6 +16,25 @@ $Scan3DSHA256 = '8c1987f7a3bae83742d95025c2c7ee219b711ab446a02948141871747e536fa
 $AltServerSHA256 = '944186a28493b628a7702c514155140d530dfadc31f4279033ae576f1403cd5f'
 $AltServerURL = 'https://cdn.altstore.io/file/altstore/altserver-windows/1_8.msi'
 $HelpURL = 'https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows'
+
+$InstallerScriptDirectory = $PSScriptRoot
+
+function Resolve-Scan3DPackageFolder([string]$Requested, [string]$Fallback) {
+    if ([string]::IsNullOrWhiteSpace($Requested)) { $Requested = $Fallback }
+    if ([string]::IsNullOrWhiteSpace($Requested)) { throw 'Pakkemappe mangler. Udpak hele pakken og brug Start-Scan3D.cmd.' }
+    if (-not (Test-Path -LiteralPath $Requested -PathType Container)) { throw 'Pakkemappen findes ikke.' }
+    return (Get-Item -LiteralPath $Requested -ErrorAction Stop).FullName
+}
+
+function Get-Scan3DSignatureStatus([string]$File) {
+    if ([string]::IsNullOrWhiteSpace($File) -or -not (Test-Path -LiteralPath $File -PathType Leaf)) { return 'Missing' }
+    try { return [string](Get-AuthenticodeSignature -LiteralPath $File -ErrorAction Stop).Status }
+    catch { return 'Unknown' }
+}
+
+function Test-Scan3DLaunchAllowed([string]$SignatureStatus) {
+    return ($SignatureStatus -ceq 'Valid')
+}
 
 function Assert-Scan3DHash([string]$Path, [string]$Expected) {
     if ($Expected -notmatch '^[a-f0-9]{64}$') { throw 'Ugyldig forventet SHA-256.' }
@@ -112,6 +131,7 @@ function Find-AltServer {
 if ($LibraryOnly) { return }
 if ($env:OS -ne 'Windows_NT') { throw 'Denne startpakke koeres paa Windows. iPhone kan bruge AltStore Classic direkte.' }
 
+$PackageFolder = Resolve-Scan3DPackageFolder $PackageFolder $InstallerScriptDirectory
 $package = Assert-Scan3DPackage $PackageFolder
 Write-Host ''
 Write-Host 'SCAN3D | INSTALLATIONSKLARGORING' -ForegroundColor Cyan
@@ -143,6 +163,11 @@ if (-not $altServer -and $InstallAltServer) {
         }
     }
     $null = Assert-Scan3DHash $installer $AltServerSHA256
+    $installerSignature = Get-Scan3DSignatureStatus $installer
+    if (-not (Test-Scan3DLaunchAllowed $installerSignature)) {
+        $altServerResult = "Installer signature: $installerSignature - automatic installation stopped"
+        Write-Warning $altServerResult
+    } else {
     Write-Host 'Windows beder muligvis om administratorgodkendelse til AltServer.'
     try {
         $install = Start-Process -FilePath 'msiexec.exe' -ArgumentList @(
@@ -157,9 +182,24 @@ if (-not $altServer -and $InstallAltServer) {
         Write-Warning $altServerResult
     }
     $altServer = Find-AltServer
+    }
 }
 elseif (-not $altServer) {
-    $altServerResult = 'Ikke installeret. Brug Start-Scan3D.cmd for guidet klargoering.'
+    $altServerResult = 'Not installed; no automatic installation attempted.'
+}
+
+$serverSignature = Get-Scan3DSignatureStatus $altServer
+$serverLaunchAllowed = Test-Scan3DLaunchAllowed $serverSignature
+if ($altServer -and -not $serverLaunchAllowed) {
+    $altServerResult = "Installed executable signature: $serverSignature - automatic start stopped"
+}
+$serverRunning = [bool](Get-Process -Name AltServer -ErrorAction SilentlyContinue)
+$serverStartAttempted = $false
+if (-not $SkipOpen -and $serverLaunchAllowed -and -not $serverRunning) {
+    $serverStartAttempted = $true
+    try { Start-Process -FilePath $altServer -ErrorAction Stop | Out-Null }
+    catch { $altServerResult = 'Windows did not start AltServer; inspect security notification.' }
+    $serverRunning = [bool](Get-Process -Name AltServer -ErrorAction SilentlyContinue)
 }
 
 $appleSupport = $false
@@ -189,34 +229,36 @@ $status = [ordered]@{
     exactSourceCommit = $Scan3DCommit
     altServerInstalled = [bool]$altServer
     altServerAttempt = $altServerResult
+    altServerAuthenticodeStatus = $serverSignature
+    altServerAutomaticLaunchAllowed = $serverLaunchAllowed
+    altServerStartAttempted = $serverStartAttempted
+    altServerProcessObserved = $serverRunning
     defaultAppleLibrariesPresent = $appleSupport
     windowsDetectsIPhone = $phoneDetected
     appleSigningCompleted = $false
     installedOnIPhone = $false
     realLiDARTested = $false
-    nextManualStep = 'Open AltStore Classic on iPhone, import Scan3D-unsigned.ipa, approve Apple ID and trust.'
+    nextManualStep = $(if ($serverLaunchAllowed -and $serverRunning) { 'Confirm actual AltStore connection, then import IPA and approve Apple signing.' } else { 'Signing route blocked or unverified; preserve IPA and Windows protection. Check existing paired Remote AltServer or use official Apple signing.' })
 }
 $statusFile = Join-Path $stateRoot 'scan3d-readiness.json'
 $status | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusFile -Encoding UTF8
 
 if (-not $SkipOpen) {
-    if ($altServer) {
-        try { Start-Process -FilePath $altServer | Out-Null }
-        catch { Write-Warning 'Kunne ikke aabne AltServer. Start det via Start-menuen.' }
-    }
     Start-Process -FilePath explorer.exe -ArgumentList ('"' + $PackageFolder + '"') | Out-Null
 }
 Write-Host ''
 Write-Host ('AltServer: ' + $(if ($altServer) {'Fundet'} else {'Mangler'}))
+Write-Host "AltServer signatur: $serverSignature"
+Write-Host "AltServer proces registreret: $serverRunning"
 Write-Host ('Apple-biblioteker: ' + $(if ($appleSupport) {'Fundet'} else {'Kontroller iTunes/iCloud'}))
 Write-Host ('iPhone tilsluttet: ' + $(if ($phoneDetected -eq $true) {'Ja'} elseif ($phoneDetected -eq $false) {'Ikke fundet'} else {'Ukendt'}))
 Write-Host "Status gemt: $statusFile"
 Write-Host ''
-Write-Host 'Sidste trin paa din iPhone (kan ikke fjernstyres):' -ForegroundColor Yellow
-Write-Host '1. Installér/åbn AltStore Classic, og fuldfoer Remote AltServer eller USB-parring.'
-Write-Host '2. My Apps -> + -> vaelg Scan3D-unsigned.ipa, og godkend Apple-login.'
-Write-Host '3. Aabn Scan3D -> Test min LiDAR. Den rigtige sensor skal kontrolleres fysisk.'
-if (-not $altServer -or -not $appleSupport) {
-    Write-Host "Se officiel Windows-vejledning: $HelpURL"
-    if (-not $SkipOpen) { Start-Process $HelpURL | Out-Null }
+if ($serverLaunchAllowed -and $serverRunning) {
+    Write-Host 'Confirm connection in AltStore Classic; import Scan3D-unsigned.ipa and approve Apple signing.'
+    Write-Host 'After installation: Test min LiDAR, save and reopen a project.'
+} else {
+    Write-Warning 'Signing route not ready. Do not repeat installs or disable Windows security.'
+    Write-Host 'Existing paired Remote AltServer requires Wi-Fi and LocalDevVPN; otherwise official Apple signing is needed.'
 }
+if (-not $appleSupport) { Write-Host "Apple libraries not confirmed. Official instructions: $HelpURL" }

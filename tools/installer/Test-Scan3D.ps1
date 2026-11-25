@@ -23,6 +23,16 @@ try {
     Reject { Assert-Scan3DHash $fixture $hash } 'Changed file must fail closed'
     Reject { Assert-Scan3DHash ($fixture + '.missing') $hash } 'Missing file must fail closed'
 
+    $directory = Split-Path -Parent $fixture
+    Check ((Resolve-Scan3DPackageFolder '' $directory) -eq (Get-Item -LiteralPath $directory).FullName) 'Empty explicit path resolves to script fallback'
+    Check ((Resolve-Scan3DPackageFolder $directory '') -eq (Get-Item -LiteralPath $directory).FullName) 'Explicit directory works without fallback'
+    Reject { Resolve-Scan3DPackageFolder '' '' } 'Missing directory must fail clearly'
+    Reject { Resolve-Scan3DPackageFolder ($fixture + '.missing') $directory } 'Invalid requested directory must fail closed'
+    Check (Test-Scan3DLaunchAllowed 'Valid') 'Only valid signatures are eligible for auto-start'
+    foreach ($badStatus in @('NotSigned','HashMismatch','NotTrusted','Unknown','Missing','')) {
+        Check (-not (Test-Scan3DLaunchAllowed $badStatus)) ('Automatic launch denied: ' + $badStatus)
+    }
+    Check ((Get-Scan3DSignatureStatus ($fixture + '.missing')) -eq 'Missing') 'Missing executable signature reported'
     $good = [pscustomobject]@{
         schemaVersion=1; sourceCommit=$Scan3DCommit
         bundleIdentifier='dk.scan3dstudio.lidar'; platform='iOS-device-arm64'
