@@ -1,0 +1,31 @@
+name: Scan3D - official AltServer Windows signature audit
+on:
+  push:
+    branches: [diagnostics/altserver-signature-20261125]
+    paths: [.github/workflows/altserver-signature-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - name: Verify official download signatures without executing installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'altserver-audit'
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          $zip = Join-Path $dir 'altinstaller.zip'
+          Invoke-WebRequest -Uri 'https://cdn.altstore.io/file/altstore/altinstaller.zip' -OutFile $zip -TimeoutSec 90
+          Write-Host "Official ZIP SHA256: $((Get-FileHash -LiteralPath $zip).Hash)"
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $dir 'contents')
+          $files = @(Get-ChildItem (Join-Path $dir 'contents') -Recurse -File | Where-Object Extension -in '.exe','.msi')
+          if (!$files.Count) { throw 'No Windows installer found.' }
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature -LiteralPath $f.FullName
+            Write-Host "File: $($f.Name); version: $($f.VersionInfo.FileVersion); status: $($sig.Status); SHA256: $((Get-FileHash -LiteralPath $f.FullName).Hash)"
+            if ($sig.SignerCertificate) { Write-Host "Signer: $($sig.SignerCertificate.Subject)" }
+          }
+          Write-Host 'No installers executed. Installed AltServer executable signature and local SAC behavior remain unverified.'
+          if (@($files | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }).Count) { throw 'One or more installer files lack verified Authenticode signatures.' }
