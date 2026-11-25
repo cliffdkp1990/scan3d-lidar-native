@@ -4,6 +4,7 @@ on:
     branches: [diagnostics/xtool-linux-preflight-20261126]
     paths:
       - tools/installer/Scan3D-Lokal-Bro.cmd
+      - tools/installer/Scan3D-Installer.sh
       - .github/workflows/scan3d-local-bridge-test.yml
 permissions:
   contents: read
@@ -24,9 +25,53 @@ jobs:
           & cmd.exe /d /c 'tools\installer\Scan3D-Lokal-Bro.cmd --check'
           if ($LASTEXITCODE -ne 0) { throw 'Bridge check failed' }
           $report = Get-Content -LiteralPath $path -Raw
-          foreach ($required in @('Scan3D lokal bro 1.0','WSL2:','USBIPD:','Apple-signering og fysisk installation: afventer')) {
+          foreach ($required in @('Scan3D lokal bro 1.1','WSL2:','USBIPD:','Apple-signering og fysisk installation: afventer')) {
             if (-not $report.Contains($required)) { throw "Missing status: $required" }
           }
           if ($report -match 'installation exitcode|xtool:') { throw 'Check-only unexpectedly attempted setup' }
           Write-Host $report
           Write-Host 'PASS: no install, no Apple login, no device pairing, no clipboard changes'
+
+  linux-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check syntax and reject incorrect IPA without login or USB
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=tools/installer/Scan3D-Installer.sh
+          bash -n "$script"
+          printf 'incorrect fixture' > "$RUNNER_TEMP/incorrect.ipa"
+          if bash "$script" --verify-ipa "$RUNNER_TEMP/incorrect.ipa"; then
+            echo 'Incorrect IPA unexpectedly accepted'; exit 1
+          fi
+          if bash "$script" --verify-ipa "$RUNNER_TEMP/missing.ipa"; then
+            echo 'Missing IPA unexpectedly accepted'; exit 1
+          fi
+          if bash "$script" --unexpected; then
+            echo 'Unexpected command accepted'; exit 1
+          fi
+          echo 'PASS: syntax, incorrect IPA, missing IPA, unknown command'
+  package:
+    needs: [check, linux-guard]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Package only local bridge files
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bridge"
+          cp tools/installer/Scan3D-Lokal-Bro.cmd tools/installer/Scan3D-Installer.sh "$RUNNER_TEMP/bridge/"
+          printf '%s\n' 'Scan3D lokal bro 1.1' 'Udpak begge filer i samme mappe paa Windows.' 'Start Scan3D-Lokal-Bro.cmd. Godkend kun oenskede trin.' 'IPA fra https://github.com/cliffdkp1990/scan3d-lidar-native/actions/runs/45715132616' 'Ingen fjernstyring. Apple-login og USB godkendes lokalt.' 'Kun read-only Windows-test og Linux-gates er CI-verificeret; fysisk USB/signering ikke testet.' > "$RUNNER_TEMP/bridge/START-HER.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Scan3D-Lokal-Bro-1.1
+          path: ${{ runner.temp }}/bridge/
+          if-no-files-found: error
+          retention-days: 14
