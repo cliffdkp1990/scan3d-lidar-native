@@ -1,0 +1,32 @@
+name: Scan3D - iLoader read-only Windows signature audit
+on:
+  push:
+    branches: [diagnostics/iloader-signature-20261125]
+    paths: [.github/workflows/iloader-signature-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect official pinned MSI without executing it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uri = 'https://github.com/nab138/iloader/releases/download/v2.4.2/iloader-windows-x64.msi'
+          $file = Join-Path $env:RUNNER_TEMP 'iloader-windows-x64.msi'
+          $expected = 'a4b7c8905f7976df1810096ab7a498eda872268c300ed317c684bcc6e62ebff1'
+          Invoke-WebRequest -Uri $uri -OutFile $file -TimeoutSec 90
+          $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "SHA256: $actual"
+          if ($actual -ne $expected) { throw 'Official release digest mismatch; stop.' }
+          $s = Get-AuthenticodeSignature -LiteralPath $file
+          Write-Host "AuthenticodeStatus: $($s.Status)"
+          Write-Host "StatusMessage: $($s.StatusMessage)"
+          if ($s.SignerCertificate) {
+            Write-Host "Signer: $($s.SignerCertificate.Subject)"
+            Write-Host "Issuer: $($s.SignerCertificate.Issuer)"
+          }
+          Write-Host 'MSI was never executed. Local Smart App Control acceptance and Apple signing remain unverified.'
+          if ($s.Status -ne 'Valid') { throw 'No valid Authenticode signature verified. Do not proceed automatically.' }
