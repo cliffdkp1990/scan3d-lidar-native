@@ -97,13 +97,22 @@ final class VideoRecorder {
     }
 
     /// Drops frames under backpressure instead of accumulating an unbounded queue.
+    /// The return value means queued, not encoded. Optional acknowledgement is
+    /// delivered on the writer queue once for queued work, after releasing the
+    /// in-flight slot; true means the writer accepted the frame. Rejected work
+    /// returns false synchronously without an acknowledgement.
     @discardableResult
-    func append(_ pixelBuffer: CVPixelBuffer, timestamp: Double) -> Bool {
+    func append(_ pixelBuffer: CVPixelBuffer, timestamp: Double,
+                onProcessed: ((Bool) -> Void)? = nil) -> Bool {
         lock.lock()
         guard accepting, !frameInFlight else { lock.unlock(); return false }
         frameInFlight = true
         queue.async { [self] in
-            defer { lock.lock(); frameInFlight = false; lock.unlock() }
+            var encoded = false
+            defer {
+                lock.lock(); frameInFlight = false; lock.unlock()
+                onProcessed?(encoded)
+            }
             do {
                 guard timestamp.isFinite, timestamp >= 0 else { return }
                 if timeline.reachedLimit(timestamp) { finish(reason: "durationLimit"); return }
@@ -132,6 +141,7 @@ final class VideoRecorder {
                     throw writer?.error ?? ScanVideoError.encoder
                 }
                 timeline = next
+                encoded = true
             } catch {
                 fatalError = error
                 finish(reason: "encoderError")

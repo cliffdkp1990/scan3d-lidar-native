@@ -66,13 +66,55 @@ func record(url: URL, orientation: ScanVideoOrientation, lowDisk: Bool = false,
         return lowDisk && diskChecks >= 2 ? 0 : 1_000_000_000
     }, completion: result.receive)
     let buffer = try redBuffer(width: sourceWidth, height: sourceHeight)
-    for index in 0..<30 {
-        _ = recorder.append(buffer, timestamp: 10 + Double(index) / 15)
-        Thread.sleep(forTimeInterval: 0.035)
+    // The real-time producer deliberately drops frames while the encoder is
+    // busy. Fixed 35 ms wall-clock sleeps make this test depend on VM speed.
+    // Drive synthetic source time only after actual writer acknowledgement;
+    // retry readiness at the SAME timestamp, without changing recorder policy.
+    // A genuinely stalled or broken encoder still fails within a bounded time.
+    let deadline = DispatchTime.now() + .seconds(45)
+    frameLoop: for index in 0..<30 {
+        let timestamp = 10 + Double(index) / 15
+        let frameDeadline = min(deadline, DispatchTime.now() + .seconds(10))
+        var written = false
+        while !written {
+            guard DispatchTime.now() < frameDeadline else {
+                recorder.finish(reason: "testTimeout")
+                print("Encoder readiness timeout: orientation=\(orientation), frame=\(index)")
+                throw ScanVideoError.encoder
+            }
+            let done = DispatchSemaphore(value: 0)
+            var accepted = false
+            let queued = recorder.append(buffer, timestamp: timestamp, onProcessed: { value in
+                accepted = value
+                done.signal()
+            })
+            if queued {
+                guard done.wait(timeout: frameDeadline) == .success else {
+                    recorder.finish(reason: "testTimeout")
+                    print("Encoder acknowledgement timeout: orientation=\(orientation), frame=\(index)")
+                    throw ScanVideoError.encoder
+                }
+                written = accepted
+                // The second storage check is at source time 11 seconds.
+                // The final result below must still prove lowStorage and a
+                // readable movie; this is the only expected early stop.
+                if !written && lowDisk && diskChecks >= 2 { break frameLoop }
+            } else {
+                // A stopped recorder must not be retried as if it were ready.
+                print("Recorder stopped unexpectedly: orientation=\(orientation), frame=\(index)")
+                _ = try result.awaitResult()
+                throw ScanVideoError.encoder
+            }
+            if !written { Thread.sleep(forTimeInterval: 0.020) }
+        }
     }
     recorder.finish(reason: stopReason)
     recorder.finish(reason: "mustNotReplaceFirstStop")
-    return try result.awaitResult()
+    let details = try result.awaitResult()
+    if !lowDisk {
+        check(details.frames == 30, "all 30 paced frames encoded: \(orientation)")
+    }
+    return details
 }
 
 for orientation in ScanVideoOrientation.allCases {
