@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'Scan3DLiDAR/**'
+      - 'tools/installer/**' # Repackage installer-only changes on protected main.
       - '.github/workflows/scan3d-lidar.yml'
   pull_request:
     paths:
