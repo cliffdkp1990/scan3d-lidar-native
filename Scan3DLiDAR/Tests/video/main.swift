@@ -122,7 +122,7 @@ for orientation in ScanVideoOrientation.allCases {
     let details = try record(url: url, orientation: orientation)
     check(details.frames! >= 5, "real encoder accepted frames: \(orientation)")
     check(details.stopReason == "user", "stop is idempotent")
-    let info = try await VideoFileInspector.inspect(url)
+    let info = try await VideoFileInspector.inspect(url, expected: details)
     check(info.duration > 0.3 && info.duration < 2.3, "movie duration is readable")
     check(info.width == 320 && info.height == 240, "native aspect ratio")
     let asset = AVURLAsset(url: url)
@@ -176,17 +176,41 @@ for orientation in ScanVideoOrientation.allCases {
 let scaledURL = root.appendingPathComponent("scaled.mov")
 let scaled = try record(url: scaledURL, orientation: .landscapeRight, sourceWidth: 1920, sourceHeight: 1080)
 check(scaled.width == 1280 && scaled.height == 720, "bounded resolution without upscaling")
-let scaledInfo = try await VideoFileInspector.inspect(scaledURL)
+let scaledInfo = try await VideoFileInspector.inspect(scaledURL, expected: scaled)
 check(scaledInfo.width == 1280 && scaledInfo.height == 720, "bounded output decodes")
+// Exercise publication validation against an actual encoded video, not a stub.
+func expectedDetails(width: Int = scaled.width, height: Int = scaled.height,
+                     duration: Double = scaled.duration, frames: Int? = scaled.frames) -> VideoDetails {
+    VideoDetails(width: width, height: height, duration: duration, frames: frames,
+        firstARTimestamp: scaled.firstARTimestamp, orientation: scaled.orientation, stopReason: scaled.stopReason)
+}
+for mismatch in [expectedDetails(width: scaled.width + 2),
+                 expectedDetails(height: scaled.height + 2),
+                 expectedDetails(duration: scaled.duration + 1),
+                 expectedDetails(duration: .nan),
+                 expectedDetails(frames: 0),
+                 expectedDetails(frames: nil)] {
+    do {
+        _ = try await VideoFileInspector.inspect(scaledURL, expected: mismatch)
+        fatalError("FAIL: mismatched recording metadata accepted")
+    } catch ScanVideoError.inconsistentMovie {
+        assertions += 1
+    } catch {
+        fatalError("FAIL: unexpected validation error: \(error)")
+    }
+}
+// Recovery/playback without encoder metadata remains supported for existing clips.
+let recoveredScaled = try await VideoFileInspector.inspect(scaledURL)
+check(recoveredScaled.width == scaled.width, "legacy recovery retains basic playback inspection")
 let lowURL = root.appendingPathComponent("low-space.mov")
 let low = try record(url: lowURL, orientation: .portrait, lowDisk: true)
 check(low.stopReason == "lowStorage" && low.frames! > 0, "low disk finalizes previous frames")
-_ = try await VideoFileInspector.inspect(lowURL)
+_ = try await VideoFileInspector.inspect(lowURL, expected: low)
 assertions += 1
 let interruptedURL = root.appendingPathComponent("interrupted.mov")
 let interruptedCapture = try record(url: interruptedURL, orientation: .portrait, stopReason: "sessionInterrupted")
 check(interruptedCapture.stopReason == "sessionInterrupted", "interruption termination recorded")
-_ = try await VideoFileInspector.inspect(interruptedURL)
+_ = try await VideoFileInspector.inspect(interruptedURL, expected: interruptedCapture)
 assertions += 1
 
 let emptyResult = RecordingResult()
@@ -203,7 +227,7 @@ let project = try store.create()
 let (pending, movieURL) = try store.beginVideo(projectID: project.id)
 try check(ProjectStore(root: store.root).load(project.id).unfinishedVideos.count == 1, "recording journal survives restart")
 let recorded = try record(url: movieURL, orientation: .portrait)
-let inspected = try await VideoFileInspector.inspect(movieURL)
+let inspected = try await VideoFileInspector.inspect(movieURL, expected: recorded)
 let saved = try store.finishVideo(projectID: project.id, videoID: pending.id,
     details: VideoDetails(width: inspected.width, height: inspected.height, duration: inspected.duration,
         frames: recorded.frames, firstARTimestamp: recorded.firstARTimestamp, orientation: recorded.orientation, stopReason: recorded.stopReason))
