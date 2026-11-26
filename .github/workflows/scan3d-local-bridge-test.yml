@@ -8,6 +8,7 @@ on:
       - .github/workflows/scan3d-local-bridge-test.yml
 permissions:
   contents: read
+  actions: read
 jobs:
   check:
     runs-on: windows-2025
@@ -25,7 +26,7 @@ jobs:
           & cmd.exe /d /c 'tools\installer\Scan3D-Lokal-Bro.cmd --check'
           if ($LASTEXITCODE -ne 0) { throw 'Bridge check failed' }
           $report = Get-Content -LiteralPath $path -Raw
-          foreach ($required in @('Scan3D lokal bro 1.1','WSL2:','USBIPD:','Apple-signering og fysisk installation: afventer')) {
+          foreach ($required in @('Scan3D lokal bro 1.2','WSL2:','USBIPD:','Apple-signering og fysisk installation: afventer')) {
             if (-not $report.Contains($required)) { throw "Missing status: $required" }
           }
           if ($report -match 'installation exitcode|xtool:') { throw 'Check-only unexpectedly attempted setup' }
@@ -63,15 +64,47 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Package only local bridge files
+      - name: Download exact previously approved main artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: scan3d-newest-green-main-unsigned
+          run-id: 45715132616
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/approved-main
+      - name: Verify the original package and create all-in-one bridge
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bridge"
+          python3 - <<'PY'
+          import hashlib, io, os, pathlib, zipfile
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          source = root / "approved-main"
+          expected_bundle = "b1b2f119c300de8de63c015f6d465ea2aab0701442792d1a2978b9bfd9a46a7a"
+          expected_ipa = "ed1b8e6cfa1640b5d73c42695ceecf02a605e454d3275158fba8791c96f07399"
+          matches = []
+          for candidate in source.rglob("*.zip"):
+              if candidate.is_file() and candidate.stat().st_size == 1177239:
+                  data = candidate.read_bytes()
+                  if hashlib.sha256(data).hexdigest() == expected_bundle:
+                      matches.append(data)
+          assert len(matches) == 1, "Expected exact approved Windows bundle"
+          with zipfile.ZipFile(io.BytesIO(matches[0])) as z:
+              names = [n for n in z.namelist() if n == "Scan3D-unsigned.ipa"]
+              assert len(names) == 1, "Expected one known IPA member"
+              info = z.getinfo(names[0])
+              assert info.file_size == 1172628, "IPA length mismatch"
+              ipa = z.read(info)
+          assert hashlib.sha256(ipa).hexdigest() == expected_ipa, "IPA digest mismatch"
+          (root / "bridge" / "Scan3D-unsigned.ipa").write_bytes(ipa)
+          print("PASS: original bundle and IPA match the exact successful main build")
+          PY
           cp tools/installer/Scan3D-Lokal-Bro.cmd tools/installer/Scan3D-Installer.sh "$RUNNER_TEMP/bridge/"
-          printf '%s\n' 'Scan3D lokal bro 1.1' 'Udpak begge filer i samme mappe paa Windows.' 'Start Scan3D-Lokal-Bro.cmd. Godkend kun oenskede trin.' 'IPA fra https://github.com/cliffdkp1990/scan3d-lidar-native/actions/runs/45715132616' 'Ingen fjernstyring. Apple-login og USB godkendes lokalt.' 'Kun read-only Windows-test og Linux-gates er CI-verificeret; fysisk USB/signering ikke testet.' > "$RUNNER_TEMP/bridge/START-HER.txt"
+          bash "$RUNNER_TEMP/bridge/Scan3D-Installer.sh" --verify-ipa "$RUNNER_TEMP/bridge/Scan3D-unsigned.ipa"
+          printf '%s\n' 'Scan3D lokal bro 1.2 - app medfoelger' 'Udpak hele pakken i samme mappe paa Windows.' 'Start Scan3D-Lokal-Bro.cmd. Godkend kun oenskede trin.' 'Ingen fjernstyring. USB og Apple-login godkendes lokalt. Afvis tilbagekaldelse af eksisterende certifikater.' 'Read-only Windows-test, Linux-guard og IPA-hash er CI-verificeret. Fysisk USB og signering er ikke testet.' > "$RUNNER_TEMP/bridge/START-HER.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: Scan3D-Lokal-Bro-1.1
+          name: Scan3D-Alt-i-en-1.2
           path: ${{ runner.temp }}/bridge/
           if-no-files-found: error
           retention-days: 14

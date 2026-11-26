@@ -23,16 +23,10 @@ fi
 verify "$tool" "$tool_sha" || die 'xtool SHA256 matcher ikke den testede version.'
 command -v wslpath >/dev/null || die 'Start inde i WSL2.'
 echo 'Scan3D lokal installation - den godkendte IPA fra build fec57d534df8.'
-echo 'Hent pakken fra GitHub Actions run 45715132616; pak den ud til Scan3D-unsigned.ipa.'
-echo 'Skriv eller indsaet den fulde Windows-sti til IPA-filen (ikke ZIP).'
-read -r -p 'IPA: ' entered || die 'Ingen fil valgt.'
-# Remove a matching pair of double quotes, as Windows "Copy as path" adds.
-if [[ "$entered" == \"*\" ]]; then entered="${entered:1:${#entered}-2}"; fi
-case "$entered" in
-    [A-Za-z]:\\*) ipa=$(wslpath -u "$entered") ;;
-    /*) ipa="$entered" ;;
-    *) die 'Brug en fuld Windows- eller Linux-sti.' ;;
-esac
+# The all-in-one bundle contains exactly the pinned IPA beside this script.
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+ipa="$script_dir/Scan3D-unsigned.ipa"
+echo 'Kontrollerer den medfoelgende IPA. Ingen manuel filsti.'
 [[ -f "$ipa" ]] || die 'IPA-fil findes ikke.'
 verify "$ipa" "$ipa_sha" || die 'Forkert IPA-version eller beskadiget fil.'
 work=$(mktemp -d)

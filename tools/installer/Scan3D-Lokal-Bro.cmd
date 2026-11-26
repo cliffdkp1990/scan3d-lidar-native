@@ -1,10 +1,10 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
-title Scan3D - lokal installationsbro 1.1
+title Scan3D - lokal installationsbro 1.2
 set "REPORT=%TEMP%\Scan3D-bro-status.txt"
 set "MODE=interactive"
 if /i "%~1"=="--check" set "MODE=check"
-> "%REPORT%" echo Scan3D lokal bro 1.1
+> "%REPORT%" echo Scan3D lokal bro 1.2
 >> "%REPORT%" echo Ingen automatisk Apple-login, sikkerhedsaendring eller fjernstyring.
 echo.
 echo Scan3D - lokal installationsbro
@@ -87,7 +87,7 @@ if errorlevel 1 goto stageFailed
 echo [OK] xtool klargjort.
 if not exist "%~dp0Scan3D-Installer.sh" goto missingStage
 echo.
-echo Trin 2 kontrollerer IPA, USB-handshake og lokal Apple-signering.
+echo Trin 2 bruger den medfoelgende, verificerede IPA og kontrollerer USB.
 choice /c JN /n /m "Fortsat til installationsguiden nu? [J/N] "
 if not "%ERRORLEVEL%"=="1" goto finish
 wsl.exe -d "%DISTRO%" --cd "%~dp0." --exec bash ./Scan3D-Installer.sh
