@@ -15,13 +15,14 @@ enum ScanVideoOrientation: String, CaseIterable {
 }
 
 enum ScanVideoError: LocalizedError {
-    case noFrames, encoder, invalidMovie, lowStorage
+    case noFrames, encoder, invalidMovie, lowStorage, inconsistentMovie
     var errorDescription: String? {
         switch self {
         case .noFrames: return "Videoen modtog ingen brugbare kamerabilleder. Start en ny optagelse."
         case .encoder: return "Videoen kunne ikke færdiggøres. Den igangværende fil er bevaret."
         case .invalidMovie: return "Videoen kan ikke læses som en afspillelig video. Originalfilen er bevaret."
         case .lowStorage: return "Video stoppet: mindre end 200 MB ledig plads."
+        case .inconsistentMovie: return "Videoens varighed, opløsning eller spor stemmer ikke med optagelsen. Originalfilen er bevaret."
         }
     }
 }
@@ -34,17 +35,34 @@ struct VideoMediaInfo {
 
 enum VideoFileInspector {
     /// Check track, positive duration and a decoded frame before exposing playback.
+    /// For newly recorded clips also require matching encoder metadata and no audio.
     /// This is not a full-file corruption or physical-camera quality test.
-    static func inspect(_ url: URL) async throws -> VideoMediaInfo {
+    static func inspect(_ url: URL, expected: VideoDetails? = nil) async throws -> VideoMediaInfo {
         let asset = AVURLAsset(url: url)
-        guard try await asset.load(.isPlayable),
-              let track = try await asset.loadTracks(withMediaType: .video).first else {
-            throw ScanVideoError.invalidMovie
-        }
+        guard try await asset.load(.isPlayable) else { throw ScanVideoError.invalidMovie }
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        guard let track = tracks.first else { throw ScanVideoError.invalidMovie }
         let duration = try await asset.load(.duration).seconds
         let size = try await track.load(.naturalSize)
-        guard duration.isFinite, duration > 0, size.width > 0, size.height > 0 else {
+        // Bound and validate before converting untrusted media dimensions to Int.
+        guard duration.isFinite, duration > 0, size.width.isFinite, size.height.isFinite,
+              size.width >= 1, size.height >= 1, size.width <= 16_384, size.height <= 16_384,
+              size.width.rounded(.towardZero) == size.width,
+              size.height.rounded(.towardZero) == size.height else {
             throw ScanVideoError.invalidMovie
+        }
+        let info = VideoMediaInfo(width: Int(size.width), height: Int(size.height), duration: duration)
+        if let expected {
+            let audio = try await asset.loadTracks(withMediaType: .audio)
+            // Allow up to two frame intervals for container timescale rounding
+            // or encoder tail padding. This is not a frame-count assertion.
+            let tolerance = 2.0 / VideoTimeline().frameRate
+            guard tracks.count == 1, audio.isEmpty, let frames = expected.frames, frames > 0,
+                  expected.duration.isFinite, expected.duration > 0,
+                  info.width == expected.width, info.height == expected.height,
+                  abs(info.duration - expected.duration) <= tolerance else {
+                throw ScanVideoError.inconsistentMovie
+            }
         }
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
@@ -55,7 +73,7 @@ enum VideoFileInspector {
         guard reader.startReading(), let sample = output.copyNextSampleBuffer(),
               CMSampleBufferGetImageBuffer(sample) != nil else { throw ScanVideoError.invalidMovie }
         reader.cancelReading()
-        return VideoMediaInfo(width: Int(size.width), height: Int(size.height), duration: duration)
+        return info
     }
 }
 

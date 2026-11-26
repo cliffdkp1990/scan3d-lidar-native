@@ -496,7 +496,7 @@ final class ScanEngine: NSObject, ObservableObject, ARSessionDelegate {
             let message: String
             do {
                 let encoded = try result.get()
-                let checked = try await VideoFileInspector.inspect(url)
+                let checked = try await VideoFileInspector.inspect(url, expected: encoded)
                 let details = VideoDetails(width: checked.width, height: checked.height, duration: checked.duration,
                     frames: encoded.frames, firstARTimestamp: encoded.firstARTimestamp,
                     orientation: encoded.orientation, stopReason: encoded.stopReason)
