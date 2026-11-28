@@ -64,10 +64,33 @@ enum GeometryExport {
         return Data((lines.joined(separator:"\n") + "\n").utf8)
     }
 
+    /// Indexed-edge diagnostics only. Coincident vertices from different ARKit
+    /// anchors are not welded. No claim about watertightness, vertex manifoldness,
+    /// self-intersections, connected components or printability.
+    struct EdgeAudit: Equatable {
+        let boundary: Int
+        let nonManifold: Int
+        let windingConflict: Int
+    }
+
     struct OBJResult {
         let data: Data
         let triangleCount: Int
         let discardedTriangleCount: Int
+        let edgeAudit: EdgeAudit
+    }
+
+    private struct EdgeKey: Hashable {
+        let low: Int
+        let high: Int
+        init(_ a: Int, _ b: Int) {
+            low = min(a,b)
+            high = max(a,b)
+        }
+    }
+    private struct EdgeUse {
+        var count = 0
+        var directionSum = 0
     }
 
     private struct FaceKey: Hashable {
@@ -111,6 +134,12 @@ enum GeometryExport {
         }
 
         var seen = Set<FaceKey>()
+        var edges: [EdgeKey: EdgeUse] = [:]
+        func recordEdge(_ a: Int, _ b: Int) {
+            let key = EdgeKey(a,b)
+            edges[key, default: EdgeUse()].count += 1
+            edges[key, default: EdgeUse()].directionSum += a < b ? 1 : -1
+        }
         var exported = 0
         for (a,b,c) in triangles {
             guard vertices.indices.contains(a), vertices.indices.contains(b), vertices.indices.contains(c),
@@ -119,10 +148,22 @@ enum GeometryExport {
                   hasArea(vertices[a],vertices[b],vertices[c]) else { continue }
             guard seen.insert(FaceKey(a,b,c)).inserted else { continue }
             lines.append("f \(indices[a]) \(indices[b]) \(indices[c])")
+            recordEdge(a,b)
+            recordEdge(b,c)
+            recordEdge(c,a)
             exported += 1
         }
+        var boundary = 0, nonManifold = 0, windingConflict = 0
+        for use in edges.values {
+            if use.count == 1 { boundary += 1 }
+            else if use.count > 2 { nonManifold += 1 }
+            else if use.directionSum != 0 { windingConflict += 1 }
+        }
+        let audit = EdgeAudit(boundary: boundary, nonManifold: nonManifold, windingConflict: windingConflict)
+        lines.append("# Indexed edge audit only: no vertex welding or printability certification")
+        lines.append("# boundary_edges \(boundary), non_manifold_edges \(nonManifold), winding_conflicts \(windingConflict)")
         return OBJResult(data: Data((lines.joined(separator:"\n") + "\n").utf8),
-            triangleCount: exported, discardedTriangleCount: triangles.count - exported)
+            triangleCount: exported, discardedTriangleCount: triangles.count - exported, edgeAudit: audit)
     }
 
     static func obj(vertices: [CloudVertex], triangles: [(Int, Int, Int)]) -> Data {
